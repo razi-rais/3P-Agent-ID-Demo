@@ -1,0 +1,25 @@
+# Environment files with secrets
+.env
+
+# Azure credentials and secrets
+*.secret
+*.pfx
+*.pem
+
+# PowerShell module cache
+*.psm1.cache
+
+# macOS
+.DS_Store
+
+# VS Code
+.vscode/
+
+# Docker volumes
+ollama-data/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
