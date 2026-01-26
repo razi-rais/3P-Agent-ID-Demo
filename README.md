@@ -184,12 +184,12 @@ $result.Agent.AgentIdentityAppId  # Agent App ID
 7. ✅ Tests token by calling Graph API (retrieves and displays actual user data)
 
 **Key Features:**
-- 🔒 **Secret Verification**: Automatically verifies client secret works before proceeding
-- ⏱️ **Smart Delays**: Built-in propagation delays (15-20 seconds total) for Entra consistency
-- 🔄 **Retry Logic**: Auto-retries for service principal and permission propagation
-- 📊 **Token Claims Display**: Shows JWT token claims when using `-ShowClaims`
-- 🧪 **Live Testing**: Tests token by calling Graph API and displaying real user data
-- ✅ **Complete Status**: Shows pass/fail status for API test in summary
+- **Secret Verification**: Automatically verifies client secret works before proceeding
+- **Smart Delays**: Built-in propagation delays (15-20 seconds total) for Entra consistency
+- **Retry Logic**: Auto-retries for service principal and permission propagation
+- **Token Claims Display**: Shows JWT token claims when using `-ShowClaims`
+- **Live Testing**: Tests token by calling Graph API and displaying real user data
+- **Complete Status**: Shows pass/fail status for API test in summary
 
 ### Individual Functions
 
