@@ -25,7 +25,7 @@ Step 2: Create Blueprint Principal
 │  Blueprint Service Principal │  ← Allows blueprint to act in tenant
 │  - Links to Blueprint App    │  ← Created from blueprint
 │  - Has permissions to create │  ← Can spawn agent identities
-│    agent identities           │
+│    agent identities          │
 └──────────────────────────────┘
 
 Step 3: Create Agent Identity
