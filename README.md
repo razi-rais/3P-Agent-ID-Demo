@@ -1,11 +1,36 @@
-# Microsoft Entra Agent ID - Complete Guide
+# Microsoft Entra Agent ID - Lab Guide
 
-## Overview
+## What You'll Learn
 
-This guide demonstrates the complete workflow for Microsoft Entra Agent ID: from creating the foundational blueprint and agent identities, through the two-token exchange mechanism, to calling Microsoft Graph API with agent-specific permissions. You'll learn how to automate the entire process with PowerShell and understand the security model behind AI agent authentication. 
+This lab guide walks you through the complete workflow for Microsoft Entra Agent ID. You will create a Blueprint application, Blueprint service principal, and Agent Identity, then use the Agent Identity token to access Microsoft Graph API. The lab uses PowerShell automation to demonstrate the two-token exchange mechanism and permission management.
 
+**What you'll accomplish:**
+- Create a Blueprint application (the factory for agent identities)
+- Create a Blueprint service principal
+- Create an Agent Identity
+- Perform two-token exchange (T1 → T2) to get access tokens
+- Assign Microsoft Graph permissions to your agent
+- Call Microsoft Graph API using the Agent Identity token
 
-### End-to-End Flow Diagram
+**Time required:** 30-45 minutes
+
+---
+
+## What is Entra Agent ID?
+
+[Microsoft Entra Agent ID](https://learn.microsoft.com/en-us/entra/agent-id/identity-platform/) is a feature in Microsoft Entra that provides secure authentication for AI agents. Key benefits:
+
+- **No stored credentials**: Agents don't have client secrets
+- **Blueprint pattern**: Create multiple agents from one template
+- **Two-token exchange**: Blueprint vouches for agent (T1 → T2)
+- **Audit trail**: Track all agent actions and decisions
+- **Least privilege**: Each agent gets only required permissions
+
+---
+
+## Architecture Overview
+
+### How It Works
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -14,34 +39,34 @@ This guide demonstrates the complete workflow for Microsoft Entra Agent ID: from
 
 Step 1: Create Blueprint Application
 ┌──────────────────────────────┐
-│  Agent Identity Blueprint    │  ← "Factory" for creating agents
-│  - Display Name              │  ← Registered in Entra ID
-│  - App ID                    │  ← Unique identifier
-│  - Client Secret             │  ← Credentials for authentication (we will update this later but for inital setup this works)
+│  Agent Identity Blueprint    │  Factory for creating agents
+│  - Display Name              │  Registered in Entra ID
+│  - App ID                    │  Unique identifier
+│  - Client Secret             │  Credentials for authentication
 └──────────────────────────────┘
 
 Step 2: Create Blueprint Principal
 ┌──────────────────────────────┐
-│  Blueprint Service Principal │  ← Allows blueprint to act in tenant
-│  - Links to Blueprint App    │  ← Created from blueprint
-│  - Has permissions to create │  ← Can spawn agent identities
+│  Blueprint Service Principal │  Allows blueprint to act in tenant
+│  - Links to Blueprint App    │  Created from blueprint
+│  - Has permissions to create │  Can spawn agent identities
 │    agent identities          │
 └──────────────────────────────┘
 
 Step 3: Create Agent Identity
 ┌──────────────────────────────┐
-│  Agent Identity              │  ← Individual AI agent (credential-less!)
-│  - Display Name              │  ← No client secret needed
-│  - App ID                    │  ← Relies on blueprint for auth
-│  - Linked to Blueprint       │  ← Inherits from blueprint pattern
+│  Agent Identity              │  Individual AI agent (no credentials)
+│  - Display Name              │  No client secret needed
+│  - App ID                    │  Relies on blueprint for auth
+│  - Linked to Blueprint       │  Inherits from blueprint pattern
 └──────────────────────────────┘
 
 Step 4: Assign Permissions to Agent
 ┌──────────────────────────────┐
-│  Microsoft Graph Permissions │  ← What the agent can access
-│  - User.Read.All             │  ← Read all users
-│  - Directory.Read.All        │  ← Read directory data
-│  - (Custom permissions)      │  ← Based on agent's role
+│  Microsoft Graph Permissions │  What the agent can access
+│  - User.Read.All             │  Read all users
+│  - Directory.Read.All        │  Read directory data
+│  - (Custom permissions)      │  Based on agent's role
 └──────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -92,43 +117,54 @@ Step 5: Two-Token Exchange Flow (T1 → T2)
     └─────────────────────┘
 ```
 
-### Key Concepts
+### Key Components
 
-- **Agent Identity Blueprint**: A "factory" application that creates agent identities. Has credentials (client secret) and permission to spawn agents. Think of it as a **class** in object-oriented programming.
+**Agent Identity Blueprint**
+- A factory application that creates agent identities
+- Has credentials (client secret) and permission to spawn agents
+- Think of it as a class in object-oriented programming
 
-- **Blueprint Principal**: The service principal for the blueprint, allowing it to operate within the tenant and create agent identities.
+**Blueprint Principal**
+- Service principal for the blueprint
+- Allows blueprint to operate within the tenant
+- Can create agent identities
 
-- **Agent Identity**: An individual AI agent created from the blueprint. Has **no credentials** - relies entirely on the blueprint for authentication through token exchange. Think of it as an **instance** of the blueprint class.
+**Agent Identity**
+- Individual AI agent created from the blueprint
+- Has no credentials - relies on blueprint for authentication
+- Think of it as an instance of the blueprint class
 
-- **T1 Token (Intermediate)**: Blueprint authenticates with its client secret and requests a special token scoped to `api://AzureADTokenExchange/.default` with `fmi_path` claim pointing to the agent. This token proves: "Blueprint vouches for this agent."
+**T1 Token (Intermediate)**
+- Blueprint authenticates with its client secret
+- Requests token scoped to `api://AzureADTokenExchange/.default`
+- Contains `fmi_path` claim pointing to the agent
+- Proves: "Blueprint vouches for this agent"
 
-- **T2 Token (Agent Token)**: Final access token representing the agent identity itself. Obtained by exchanging T1 token using OAuth 2.0 `client_assertion` grant. Contains agent's App ID, permissions (roles), and federation proof (xms_frd claim).
+**T2 Token (Agent Token)**
+- Final access token representing the agent identity
+- Obtained by exchanging T1 token
+- Contains agent's App ID, permissions (roles), and federation proof
+- Used to call Microsoft Graph API
 
-- **Microsoft Graph Permissions**: Role-based permissions assigned to the agent identity (e.g., `User.Read.All`, `Directory.Read.All`). These appear in the `roles` claim of the T2 token and determine what the agent can access.
-
-## What is Entra Agent ID?
-
-[Microsoft Entra Agent ID](https://learn.microsoft.com/en-us/entra/agent-id/identity-platform/) is a new feature for Microsoft Entra that adds support for "AI Agent" workloads. It provides:
-
-- **Dynamic Agent Identities**: Credential-less service principals for AI agents
-- **Blueprint Pattern**: Template-based identity creation (class → instance model)
-- **Token Exchange Flow**: Two-step authentication process (T1 → T2)
-- **Enterprise Compliance**: Audit trail for agent actions and decisions
-- **Least Privilege Security**: Each agent gets only the permissions it needs
+**Microsoft Graph Permissions**
+- Role-based permissions assigned to the agent
+- Examples: `User.Read.All`, `Directory.Read.All`
+- Appear in the `roles` claim of the T2 token
+- Determine what the agent can access
 
 ---
 
-## Prerequisites
+## Lab Prerequisites
 
 ### Software Requirements
-- **Azure CLI** installed
-- **PowerShell 7.5+** (`brew install --cask powershell` on Mac)
-- **Azure subscription** with active tenant
-- **Microsoft Graph PowerShell SDK**: `Install-Module Microsoft.Graph -Scope CurrentUser`
+- Azure CLI installed
+- PowerShell 7.5 or higher (`brew install --cask powershell` on Mac)
+- Azure subscription with active tenant
+- Microsoft Graph PowerShell SDK: `Install-Module Microsoft.Graph -Scope CurrentUser`
 
 ### Required Permissions
 
-The user running the script must have the following **Microsoft Graph API delegated permissions**:
+You need the following Microsoft Graph API delegated permissions:
 
 | Permission | Purpose |
 |------------|----------|
@@ -140,20 +176,39 @@ The user running the script must have the following **Microsoft Graph API delega
 | `AppRoleAssignment.ReadWrite.All` | Assign Microsoft Graph permissions to agents |
 | `User.Read` | Read signed-in user profile (for testing) |
 
-**Required Entra ID Role** (one of):
-- **Global Administrator** (recommended for initial setup)
-- **Cloud Application Administrator** (can create apps and service principals)
-- **Application Administrator** (can create apps and service principals)
+**Required Entra ID Role** (one of the following):
+- Global Administrator (recommended for initial setup)
+- Cloud Application Administrator (can create apps and service principals)
+- Application Administrator (can create apps and service principals)
 
-> ℹ️ **Note**: The `Connect-EntraAgentIDEnvironment` function automatically requests these permissions when you connect to Microsoft Graph. You will be prompted to consent during the sign-in process.
+Note: The PowerShell functions automatically request these permissions when you connect to Microsoft Graph. You will be prompted to consent during sign-in.
 
 ---
 
-## Quick Start (Automated Workflow)
+## Exercise 1: Clone the Repository
 
-### Using PowerShell Functions
+First, clone this repository to your local machine:
 
-For a streamlined experience, use the provided PowerShell module that automates the entire workflow:
+```bash
+git clone https://github.com/razi-rais/3P-Agent-ID-Demo.git
+cd 3P-Agent-ID-Demo
+```
+
+---
+
+## Exercise 2: Automated Workflow (Recommended)
+
+### What You'll Do
+
+This exercise uses PowerShell functions to automate the complete Agent ID workflow. The script will create a blueprint, create an agent identity, perform token exchange, assign permissions, and test the token by calling Microsoft Graph API.
+
+**IMPORTANT:** Before running the PowerShell functions, you must complete [Part 1: Setup and Authentication](#part-1) (Steps 1 and 2) below to:
+1. Connect to Azure (`az login`)
+2. Connect to Microsoft Graph (`Connect-MgGraph`)
+
+The functions require active authentication sessions to both Azure and Microsoft Graph.
+
+### Run the Workflow
 
 ```powershell
 # 1. Load the functions
@@ -174,29 +229,37 @@ $result.Blueprint.BlueprintAppId  # Blueprint App ID
 $result.Agent.AgentIdentityAppId  # Agent App ID
 ```
 
-**What it does:**
-1. ✅ Connects to Azure and Microsoft Graph
-2. ✅ Creates Agent Identity Blueprint with credentials
-3. ✅ Creates Agent Identity from blueprint
-4. ✅ Performs T1 → T2 token exchange
-5. ✅ Adds Microsoft Graph permissions to agent
-6. ✅ Gets new token with permissions
-7. ✅ Tests token by calling Graph API (retrieves and displays actual user data)
+### What Happens
 
-**Key Features:**
-- **Secret Verification**: Automatically verifies client secret works before proceeding
-- **Smart Delays**: Built-in propagation delays (15-20 seconds total) for Entra consistency
-- **Retry Logic**: Auto-retries for service principal and permission propagation
-- **Token Claims Display**: Shows JWT token claims when using `-ShowClaims`
-- **Live Testing**: Tests token by calling Graph API and displaying real user data
-- **Complete Status**: Shows pass/fail status for API test in summary
+The workflow performs these steps automatically:
+1. Connects to Azure and Microsoft Graph
+2. Creates Agent Identity Blueprint with credentials
+3. Creates Agent Identity from blueprint
+4. Performs T1 to T2 token exchange
+5. Adds Microsoft Graph permissions to agent
+6. Gets new token with permissions
+7. Tests token by calling Graph API and displays actual user data
 
-### Individual Functions
+### Features
 
-You can also run each step individually:
+The automated workflow includes:
+- Secret verification (checks client secret works before proceeding)
+- Smart delays (built-in propagation delays for Entra consistency)
+- Retry logic (auto-retries for service principal and permission propagation)
+- Token claims display (shows JWT token claims when using `-ShowClaims`)
+- Live testing (calls Graph API and displays real user data)
+- Complete status (shows pass/fail status for API test in summary)
+
+---
+
+## Exercise 3: Manual Step-by-Step Functions
+
+You can also run each step individually to understand the process better.
+
+**IMPORTANT:** Before using these functions, ensure you have completed [Part 1: Setup and Authentication](#part-1) (Steps 1 and 2) to authenticate with Azure and Microsoft Graph.
 
 ```powershell
-# Connect to environment
+# Connect to environment (verifies existing Azure/Graph connections)
 $connection = Connect-EntraAgentIDEnvironment
 
 # Create blueprint
@@ -220,6 +283,7 @@ Add-AgentIdentityPermissions -AgentIdentitySP $agent.AgentIdentitySP `
     -Permissions @("User.Read.All")
 
 # Test token (calls Graph API and shows actual users)
+# Test token (calls Graph API and shows actual users)
 Test-AgentIdentityToken -AccessToken $tokens.AccessToken
 
 # List all agent identities
@@ -232,29 +296,43 @@ Get-BlueprintList
 Get-DecodedJwtToken -Token $tokens.AccessToken
 ```
 
-### Troubleshooting Automated Workflow
+---
 
-**Issue: "Authorization_RequestDenied" when testing token**
-- **Cause**: Permissions not yet propagated to token (Entra eventual consistency)
-- **Solution**: Wait 5-10 minutes and get a new token:
-  ```powershell
-  $newTokens = Get-AgentIdentityToken `
-      -BlueprintAppId $result.Blueprint.BlueprintAppId `
-      -ClientSecret $result.Blueprint.ClientSecret `
-      -AgentIdentityAppId $result.Agent.AgentIdentityAppId `
-      -TenantId $result.Connection.TenantId `
-      -ShowClaims
-  
-  Test-AgentIdentityToken -AccessToken $newTokens.AccessToken
-  ```
+## Troubleshooting
 
-**Issue: "Invalid client secret" error**
-- **Cause**: Secret not yet valid for authentication (propagation delay)
-- **Solution**: The script now auto-verifies secrets with retry logic (up to 30 seconds)
+### Issue: "Authorization_RequestDenied" when testing token
 
-**Issue: "Resource does not exist" when adding permissions**
-- **Cause**: Agent service principal not yet queryable
-- **Solution**: The script now auto-verifies service principal exists with retry logic (up to 30 seconds)
+**Cause:** Permissions not yet propagated to token (Entra eventual consistency)
+
+**Solution:** Wait 5-10 minutes and get a new token:
+```powershell
+$newTokens = Get-AgentIdentityToken `
+    -BlueprintAppId $result.Blueprint.BlueprintAppId `
+    -ClientSecret $result.Blueprint.ClientSecret `
+    -AgentIdentityAppId $result.Agent.AgentIdentityAppId `
+    -TenantId $result.Connection.TenantId `
+    -ShowClaims
+
+Test-AgentIdentityToken -AccessToken $newTokens.AccessToken
+```
+
+### Issue: "Invalid client secret" error
+
+**Cause:** Secret not yet valid for authentication (propagation delay)
+
+**Solution:** The script auto-verifies secrets with retry logic (up to 30 seconds)
+
+### Issue: "Resource does not exist" when adding permissions
+
+**Cause:** Agent service principal not yet queryable
+
+**Solution:** The script auto-verifies service principal exists with retry logic (up to 30 seconds)
+
+### Issue: Workflow creates multiple blueprints
+
+**Expected behavior:** Each workflow run creates a new blueprint and agent
+
+**Cleanup:** Use Azure Portal or CLI to delete old blueprints if needed
 
 **Issue: Workflow creates multiple blueprints**
 - **Expected**: Each workflow run creates a NEW blueprint and agent
@@ -266,7 +344,7 @@ Get-DecodedJwtToken -Token $tokens.AccessToken
 
 If you prefer to understand each step in detail, follow the manual process below:
 
-## Part 1: Setup and Authentication
+## Part 1: Setup and Authentication {#part-1}
 
 ### Step 1: Connect to Azure
 
