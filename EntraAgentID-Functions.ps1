@@ -798,9 +798,9 @@ function Start-EntraAgentIDWorkflow {
         [switch]$SkipTest
     )
     
-    Write-Host "`n╔══════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-    Write-Host "║  Microsoft Entra Agent ID - Complete Workflow            ║" -ForegroundColor Cyan
-    Write-Host "╚══════════════════════════════════════════════════════════╝`n" -ForegroundColor Cyan
+    Write-Host "`n============================================================" -ForegroundColor Cyan
+    Write-Host "   Microsoft Entra Agent ID - Complete Workflow" -ForegroundColor Cyan
+    Write-Host "============================================================`n" -ForegroundColor Cyan
     
     Write-Host "[INFO]  Note: This workflow creates NEW blueprint and agent identities each time." -ForegroundColor Yellow
     Write-Host "   Old blueprints will remain in your tenant until manually deleted." -ForegroundColor Yellow
@@ -865,9 +865,9 @@ function Start-EntraAgentIDWorkflow {
         }
         
         # Summary
-        Write-Host "`n╔══════════════════════════════════════════════════════════╗" -ForegroundColor Green
-        Write-Host "║  [OK] Workflow Completed Successfully!                     ║" -ForegroundColor Green
-        Write-Host "╚══════════════════════════════════════════════════════════╝`n" -ForegroundColor Green
+        Write-Host "`n============================================================" -ForegroundColor Green
+        Write-Host "   [OK] Workflow Completed Successfully!" -ForegroundColor Green
+        Write-Host "============================================================`n" -ForegroundColor Green
         
         Write-Host "[INFO] Summary:" -ForegroundColor Cyan
         Write-Host "  Tenant ID:                $($connection.TenantId)" -ForegroundColor Gray
@@ -901,9 +901,9 @@ function Start-EntraAgentIDWorkflow {
         }
     }
     catch {
-        Write-Host "`n╔══════════════════════════════════════════════════════════╗" -ForegroundColor Red
-        Write-Host "║  [ERROR] Workflow Failed                                      ║" -ForegroundColor Red
-        Write-Host "╚══════════════════════════════════════════════════════════╝`n" -ForegroundColor Red
+        Write-Host "`n============================================================" -ForegroundColor Red
+        Write-Host "   [ERROR] Workflow Failed" -ForegroundColor Red
+        Write-Host "============================================================`n" -ForegroundColor Red
         Write-Error "Error: $_"
         throw
     }
