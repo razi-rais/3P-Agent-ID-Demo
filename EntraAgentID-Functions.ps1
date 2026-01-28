@@ -120,71 +120,36 @@ function Connect-EntraAgentIDEnvironment {
         # Check if all required scopes are present
         $missingScopes = $requiredScopes | Where-Object { $_ -notin $currentContext.Scopes }
         if ($missingScopes.Count -gt 0) {
-            Write-Host "  ℹ️  Missing required scopes: $($missingScopes -join ', ')" -ForegroundColor Yellow
-            Write-Host "  🔄 Reconnecting with all required permissions..." -ForegroundColor Cyan
+            Write-Host "  WARNING: Missing required scopes: $($missingScopes -join ', ')" -ForegroundColor Yellow
+            Write-Host "  The script may fail without these scopes." -ForegroundColor Yellow
             Write-Host ""
-            $needsReconnect = $true
+            Write-Host "  Please reconnect manually with all required scopes:" -ForegroundColor Yellow
+            Write-Host "  Disconnect-MgGraph" -ForegroundColor White
+            Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId -UseDeviceCode" -ForegroundColor White
+            Write-Host ""
+            throw "Missing required Microsoft Graph scopes. Please reconnect with all scopes as shown above."
         } else {
-            Write-Host "  ✅ All required scopes present" -ForegroundColor Green
+            Write-Host "  All required scopes present" -ForegroundColor Green
             Write-Host ""
         }
     } else {
-        Write-Host "  🔄 Connecting to Microsoft Graph..." -ForegroundColor Cyan
+        Write-Host "  ERROR: Not connected to Microsoft Graph" -ForegroundColor Red
         Write-Host ""
-        $needsReconnect = $true
-    }
-    
-    # Connect to Microsoft Graph with user identity (device code flow)
-    if ($needsReconnect) {
-        Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
-        
-        Write-Host "  Please complete authentication using device code flow:" -ForegroundColor Yellow
-        Write-Host "  1. Copy the code that will be displayed" -ForegroundColor White
-        Write-Host "  2. Open the URL in your browser" -ForegroundColor White
-        Write-Host "  3. Enter the code and sign in with your user account" -ForegroundColor White
+        Write-Host "  Please connect manually first:" -ForegroundColor Yellow
+        Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId -UseDeviceCode" -ForegroundColor White
         Write-Host ""
-        
-        Connect-MgGraph -Scopes $requiredScopes -TenantId $TenantId -UseDeviceCode
-        
-        # Get updated context after connection
-        $currentContext = Get-MgContext
-        Write-Host ""
-        
-        # Verify scopes were granted
-        $stillMissingScopes = @()
-        if ($currentContext.Scopes) {
-            $stillMissingScopes = $requiredScopes | Where-Object { $_ -notin $currentContext.Scopes }
-        }
-        
-        if ($stillMissingScopes.Count -gt 0) {
-            Write-Host "  ❌ Required scopes were NOT granted" -ForegroundColor Red
-            Write-Host "     Account:   $($currentContext.Account)" -ForegroundColor Gray
-            Write-Host "     Tenant ID: $($currentContext.TenantId)" -ForegroundColor Gray
-            Write-Host "     Missing:   $($stillMissingScopes -join ', ')" -ForegroundColor Red
-            Write-Host ""
-            Write-Host "  💡 Your account may need admin consent for these permissions." -ForegroundColor Yellow
-            Write-Host "     Contact your Global Administrator or get Application Administrator role." -ForegroundColor Gray
-            Write-Host ""
-            throw "Required Microsoft Graph scopes were not granted."
-        }
-        
-        Write-Host "  ✅ Successfully authenticated!" -ForegroundColor Green
-        Write-Host "     Account:   $($currentContext.Account)" -ForegroundColor White
-        Write-Host "     Tenant ID: $($currentContext.TenantId)" -ForegroundColor White
-        Write-Host "     Scopes:    $($currentContext.Scopes.Count) granted" -ForegroundColor Gray
+        throw "Not connected to Microsoft Graph. Please connect as shown above."
     }
     
     Write-Host ""
-    Write-Host "✅ Connected to tenant: $TenantId" -ForegroundColor Green
+    Write-Host "Connected to tenant: $TenantId" -ForegroundColor Green
     Write-Host ""
-     
+    
     return @{
         TenantId = $TenantId
         Account  = $currentContext.Account
     }
-}
-
-#endregion
+}#endregion
 
 #region Step 2: Blueprint Creation
 
