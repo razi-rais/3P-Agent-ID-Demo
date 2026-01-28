@@ -267,47 +267,63 @@ function Connect-EntraAgentIDEnvironment {
         # Get updated context after connection
         $currentContext = Get-MgContext
         Write-Host ""
-        Write-Host "  ✅ Successfully authenticated!" -ForegroundColor Green
-        Write-Host "     Account:   $($currentContext.Account)" -ForegroundColor White
-        Write-Host "     Tenant ID: $($currentContext.TenantId)" -ForegroundColor White
         
         # Verify scopes were granted (especially important for Cloud Shell)
+        $stillMissingScopes = @()
         if ($currentContext.Scopes) {
-            Write-Host "     Scopes:    $($currentContext.Scopes -join ', ')" -ForegroundColor Gray
-            
             # Check if required scopes are present
             $stillMissingScopes = $requiredScopes | Where-Object { $_ -notin $currentContext.Scopes }
+        }
+        
+        if ($stillMissingScopes.Count -gt 0) {
+            Write-Host "  ⚠️  Authentication completed but required scopes NOT granted" -ForegroundColor Yellow
+            Write-Host "     Account:   $($currentContext.Account)" -ForegroundColor Gray
+            Write-Host "     Tenant ID: $($currentContext.TenantId)" -ForegroundColor Gray
+            Write-Host "     Missing:   $($stillMissingScopes -join ', ')" -ForegroundColor Red
+            Write-Host ""
             
-            if ($stillMissingScopes.Count -gt 0) {
+            if ($isCloudShell) {
+                Write-Host "  🚫 Cloud Shell Limitation" -ForegroundColor Red
+                Write-Host "     Azure Cloud Shell cannot request delegated permissions for Agent Identity" -ForegroundColor Gray
+                Write-Host "     operations because it uses a system-managed authentication token." -ForegroundColor Gray
                 Write-Host ""
-                Write-Host "  ⚠️  WARNING: Required scopes were not granted!" -ForegroundColor Yellow
-                Write-Host "     Missing: $($stillMissingScopes -join ', ')" -ForegroundColor Gray
+                Write-Host "  ✅ Solution: Use Local PowerShell" -ForegroundColor Green
+                Write-Host "     Agent Identity Blueprint creation requires user consent for scopes:" -ForegroundColor White
+                Write-Host "       • AgentIdentityBlueprint.Create" -ForegroundColor Cyan
+                Write-Host "       • AgentIdentityBlueprint.AddRemoveCreds.All" -ForegroundColor Cyan
+                Write-Host "       • AgentIdentityBlueprintPrincipal.Create" -ForegroundColor Cyan
+                Write-Host ""
+                Write-Host "     These scopes require interactive consent which Cloud Shell cannot provide." -ForegroundColor White
+                Write-Host ""
+                Write-Host "  📥 How to run locally:" -ForegroundColor Cyan
+                Write-Host "     1. Open PowerShell on your local machine" -ForegroundColor White
+                Write-Host "     2. git clone https://github.com/razi-rais/3P-Agent-ID-Demo.git" -ForegroundColor White
+                Write-Host "     3. cd 3P-Agent-ID-Demo" -ForegroundColor White
+                Write-Host "     4. . ./EntraAgentID-Functions.ps1" -ForegroundColor White
+                Write-Host "     5. Start-EntraAgentIDWorkflow" -ForegroundColor White
                 Write-Host ""
                 
-                if ($isCloudShell) {
-                    Write-Host "  🚫 Cloud Shell Limitation" -ForegroundColor Red
-                    Write-Host "     Azure Cloud Shell cannot request delegated permissions for Agent Identity" -ForegroundColor Gray
-                    Write-Host "     operations because it uses a system-managed authentication token." -ForegroundColor Gray
-                    Write-Host ""
-                    Write-Host "  ✅ Solution: Use Local PowerShell" -ForegroundColor Green
-                    Write-Host "     Agent Identity Blueprint creation requires user consent for scopes:" -ForegroundColor White
-                    Write-Host "       • AgentIdentityBlueprint.Create" -ForegroundColor Cyan
-                    Write-Host "       • AgentIdentityBlueprint.AddRemoveCreds.All" -ForegroundColor Cyan
-                    Write-Host "       • AgentIdentityBlueprintPrincipal.Create" -ForegroundColor Cyan
-                    Write-Host ""
-                    Write-Host "     These scopes require interactive consent which Cloud Shell cannot provide." -ForegroundColor White
-                    Write-Host ""
-                    Write-Host "  📥 How to run locally:" -ForegroundColor Cyan
-                    Write-Host "     1. Open PowerShell on your local machine" -ForegroundColor White
-                    Write-Host "     2. git clone https://github.com/razi-rais/3P-Agent-ID-Demo.git" -ForegroundColor White
-                    Write-Host "     3. cd 3P-Agent-ID-Demo" -ForegroundColor White
-                    Write-Host "     4. . ./EntraAgentID-Functions.ps1" -ForegroundColor White
-                    Write-Host "     5. Start-EntraAgentIDWorkflow" -ForegroundColor White
-                    Write-Host ""
-                    
-                    throw "Cloud Shell cannot obtain required Agent Identity scopes. Please run from local machine."
-                }
+                throw "Cloud Shell cannot obtain required Agent Identity scopes. Please run from local machine."
+            } else {
+                Write-Host "  💡 The connection succeeded but Microsoft Graph did not grant the requested scopes." -ForegroundColor Yellow
+                Write-Host ""
+                Write-Host "  Possible reasons:" -ForegroundColor Cyan
+                Write-Host "     • Your account lacks admin consent for these permissions" -ForegroundColor White
+                Write-Host "     • The scopes require admin consent in your tenant" -ForegroundColor White
+                Write-Host "     • Your account needs Application Administrator or Global Administrator role" -ForegroundColor White
+                Write-Host ""
+                Write-Host "  To resolve:" -ForegroundColor Cyan
+                Write-Host "     1. Ask your Global Administrator to grant admin consent" -ForegroundColor White
+                Write-Host "     2. Or get Application Administrator role assigned to your account" -ForegroundColor White
+                Write-Host ""
+                
+                throw "Required Microsoft Graph scopes were not granted. See above for resolution steps."
             }
+        } else {
+            Write-Host "  ✅ Successfully authenticated!" -ForegroundColor Green
+            Write-Host "     Account:   $($currentContext.Account)" -ForegroundColor White
+            Write-Host "     Tenant ID: $($currentContext.TenantId)" -ForegroundColor White
+            Write-Host "     Scopes:    $($currentContext.Scopes.Count) granted" -ForegroundColor Gray
         }
     }
     
