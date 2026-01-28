@@ -151,7 +151,7 @@ function Connect-EntraAgentIDEnvironment {
     }
 }#endregion
 
-#region Step 2: Blueprint Creation
+#region Step 2: Blueprint Creation 
 
 function New-AgentIdentityBlueprint {
     <#
