@@ -53,15 +53,35 @@ function Connect-EntraAgentIDEnvironment {
     )
     
     Write-Host "🔐 Step 1: Connecting to Azure and Microsoft Graph..." -ForegroundColor Cyan
+    Write-Host ""
     
-    # Get tenant ID from Azure CLI if not provided
+    # Check current Graph connection first
+    $currentContext = Get-MgContext -ErrorAction SilentlyContinue
+    
+    if ($currentContext) {
+        Write-Host "📊 Current Microsoft Graph Connection:" -ForegroundColor Cyan
+        Write-Host "  Account:     $($currentContext.Account)" -ForegroundColor White
+        Write-Host "  Tenant ID:   $($currentContext.TenantId)" -ForegroundColor White
+        Write-Host "  Scopes:      $($currentContext.Scopes -join ', ')" -ForegroundColor Gray
+        Write-Host ""
+        
+        # Use tenant from current context if not provided
+        if (-not $TenantId) {
+            $TenantId = $currentContext.TenantId
+        }
+    } else {
+        Write-Host "⚠️  Not currently logged in to Microsoft Graph" -ForegroundColor Yellow
+        Write-Host ""
+    }
+    
+    # Get tenant ID from Azure CLI/PowerShell if still not available
     if (-not $TenantId) {
         try {
             # Try Azure PowerShell first
             $context = Get-AzContext -ErrorAction SilentlyContinue
             if ($context) {
                 $TenantId = $context.Tenant.Id
-                Write-Host "  Found tenant from Azure PowerShell context" -ForegroundColor Gray
+                Write-Host "  Found tenant from Azure PowerShell context: $TenantId" -ForegroundColor Gray
             }
         }
         catch {
@@ -73,21 +93,74 @@ function Connect-EntraAgentIDEnvironment {
                 # Try Azure CLI
                 $TenantId = az account show --query tenantId -o tsv 2>$null
                 if ($TenantId) {
-                    Write-Host "  Found tenant from Azure CLI" -ForegroundColor Gray
+                    Write-Host "  Found tenant from Azure CLI: $TenantId" -ForegroundColor Gray
                 }
             }
             catch {
                 # Ignore error
             }
         }
+    }
+    
+    # If we still don't have tenant ID, help user login
+    if (-not $TenantId) {
+        Write-Host "❌ No tenant ID available and not logged in" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Let's get you signed in to Azure..." -ForegroundColor Yellow
+        Write-Host ""
         
-        if (-not $TenantId) {
-            throw "No Azure context found. Please run 'az login' first or provide TenantId parameter."
+        # Check if Az module is available
+        $azModuleAvailable = Get-Module -Name Az.Accounts -ListAvailable -ErrorAction SilentlyContinue
+        
+        if ($azModuleAvailable) {
+            Write-Host "🔐 Signing in with Azure PowerShell..." -ForegroundColor Cyan
+            Write-Host ""
+            
+            try {
+                # Use device code flow for consistency
+                Connect-AzAccount -UseDeviceAuthentication
+                
+                $context = Get-AzContext
+                if ($context) {
+                    $TenantId = $context.Tenant.Id
+                    Write-Host ""
+                    Write-Host "  ✅ Successfully signed in!" -ForegroundColor Green
+                    Write-Host "     Account:   $($context.Account.Id)" -ForegroundColor White
+                    Write-Host "     Tenant ID: $TenantId" -ForegroundColor White
+                    Write-Host ""
+                }
+            }
+            catch {
+                Write-Host ""
+                Write-Host "❌ Azure PowerShell login failed: $_" -ForegroundColor Red
+                Write-Host ""
+                throw "Failed to sign in. Please try manually: Connect-AzAccount"
+            }
+        }
+        else {
+            Write-Host "ℹ️  Azure PowerShell module (Az.Accounts) not found" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "Please sign in using one of these methods:" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "Option 1 - Install and use Azure PowerShell (recommended):" -ForegroundColor Cyan
+            Write-Host "  Install-Module -Name Az.Accounts -Scope CurrentUser -Force" -ForegroundColor White
+            Write-Host "  Connect-AzAccount" -ForegroundColor White
+            Write-Host ""
+            Write-Host "Option 2 - Use Azure CLI:" -ForegroundColor Cyan
+            Write-Host "  az login" -ForegroundColor White
+            Write-Host ""
+            Write-Host "Option 3 - Provide tenant ID directly:" -ForegroundColor Cyan
+            Write-Host "  Connect-EntraAgentIDEnvironment -TenantId '<your-tenant-id>'" -ForegroundColor White
+            Write-Host ""
+            throw "No Azure context found. Please sign in first using one of the options above."
         }
     }
     
-    # Check current Graph connection
-    $currentContext = Get-MgContext -ErrorAction SilentlyContinue
+    if (-not $TenantId) {
+        throw "Failed to obtain tenant ID after sign-in attempt."
+    }
+    
+    # Check required scopes
     $requiredScopes = @(
         "AgentIdentityBlueprint.AddRemoveCreds.All",
         "AgentIdentityBlueprint.Create",
@@ -103,25 +176,47 @@ function Connect-EntraAgentIDEnvironment {
         # Check if all required scopes are present
         $missingScopes = $requiredScopes | Where-Object { $_ -notin $currentContext.Scopes }
         if ($missingScopes.Count -gt 0) {
-            Write-Host "  ℹ️  Missing scopes: $($missingScopes -join ', ')" -ForegroundColor Yellow
+            Write-Host "  ℹ️  Missing required scopes: $($missingScopes -join ', ')" -ForegroundColor Yellow
             Write-Host "  🔄 Reconnecting with all required permissions..." -ForegroundColor Cyan
+            Write-Host ""
             $needsReconnect = $true
+        } else {
+            Write-Host "  ✅ All required scopes present" -ForegroundColor Green
+            Write-Host ""
         }
     } else {
+        Write-Host "  🔄 Connecting to Microsoft Graph with device code flow..." -ForegroundColor Cyan
+        Write-Host ""
         $needsReconnect = $true
     }
     
     # Connect to Microsoft Graph (or reconnect with new permissions)
     if ($needsReconnect) {
         Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
+        
+        Write-Host "  Please complete authentication using device code flow:" -ForegroundColor Yellow
+        Write-Host "  1. Copy the code that will be displayed" -ForegroundColor White
+        Write-Host "  2. Open the URL in your browser" -ForegroundColor White
+        Write-Host "  3. Enter the code and sign in" -ForegroundColor White
+        Write-Host ""
+        
         Connect-MgGraph -Scopes $requiredScopes -TenantId $TenantId -UseDeviceCode
+        
+        # Get updated context after connection
+        $currentContext = Get-MgContext
+        Write-Host ""
+        Write-Host "  ✅ Successfully authenticated!" -ForegroundColor Green
+        Write-Host "     Account:   $($currentContext.Account)" -ForegroundColor White
+        Write-Host "     Tenant ID: $($currentContext.TenantId)" -ForegroundColor White
     }
-     
     
+    Write-Host ""
     Write-Host "✅ Connected to tenant: $TenantId" -ForegroundColor Green
+    Write-Host ""
     
     return @{
         TenantId = $TenantId
+        Account  = $currentContext.Account
     }
 }
 
