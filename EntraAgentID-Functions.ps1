@@ -125,7 +125,7 @@ function Connect-EntraAgentIDEnvironment {
             Write-Host ""
             Write-Host "  Please reconnect manually with all required scopes:" -ForegroundColor Yellow
             Write-Host "  Disconnect-MgGraph" -ForegroundColor White
-            Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId -UseDeviceCode" -ForegroundColor White
+            Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId" -ForegroundColor White
             Write-Host ""
             throw "Missing required Microsoft Graph scopes. Please reconnect with all scopes as shown above."
         } else {
@@ -136,7 +136,7 @@ function Connect-EntraAgentIDEnvironment {
         Write-Host "  ERROR: Not connected to Microsoft Graph" -ForegroundColor Red
         Write-Host ""
         Write-Host "  Please connect manually first:" -ForegroundColor Yellow
-        Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId -UseDeviceCode" -ForegroundColor White
+        Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId" -ForegroundColor White
         Write-Host ""
         throw "Not connected to Microsoft Graph. Please connect as shown above."
     }
@@ -181,7 +181,7 @@ function New-AgentIdentityBlueprint {
         Write-Host ""
         Write-Host "  ERROR: Microsoft Graph connection lost" -ForegroundColor Red
         Write-Host "  Please reconnect and try again:" -ForegroundColor Yellow
-        Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId -UseDeviceCode" -ForegroundColor White
+        Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId" -ForegroundColor White
         Write-Host ""
         throw "Not connected to Microsoft Graph"
     }
@@ -214,7 +214,7 @@ function New-AgentIdentityBlueprint {
             Write-Host ""
             Write-Host "  Please disconnect and reconnect:" -ForegroundColor Cyan
             Write-Host "  Disconnect-MgGraph" -ForegroundColor White
-            Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId -UseDeviceCode" -ForegroundColor White
+            Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId" -ForegroundColor White
             Write-Host ""
         } else {
             Write-Host "  This may indicate:" -ForegroundColor Yellow
@@ -224,7 +224,7 @@ function New-AgentIdentityBlueprint {
             Write-Host ""
             Write-Host "  Try reconnecting:" -ForegroundColor Cyan
             Write-Host "  Disconnect-MgGraph" -ForegroundColor White
-            Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId -UseDeviceCode" -ForegroundColor White
+            Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId" -ForegroundColor White
             Write-Host ""
         }
         throw $_
@@ -678,67 +678,97 @@ function Test-AgentIdentityToken {
     
     .PARAMETER AccessToken
     The agent identity access token (T2 token).
+    
+    .PARAMETER MaxRetries
+    Maximum number of retry attempts. Default: 10
+    
+    .PARAMETER RetryDelaySeconds
+    Seconds to wait between retries. Default: 10
     #>
     param(
         [Parameter(Mandatory = $true)]
-        [string]$AccessToken
+        [string]$AccessToken,
+        
+        [Parameter(Mandatory = $false)]
+        [int]$MaxRetries = 10,
+        
+        [Parameter(Mandatory = $false)]
+        [int]$RetryDelaySeconds = 10
     )
     
     Write-Host "[TEST] Step 6: Testing Agent Identity Token..." -ForegroundColor Cyan
     
-    try {
-        $response = Invoke-RestMethod -Method GET `
-            -Uri "https://graph.microsoft.com/v1.0/users?`$top=5" `
-            -Headers @{
-            "Authorization" = "Bearer $AccessToken"
-            "Content-Type"  = "application/json"
-        }
+    $retryCount = 0
+    $success = $false
+    $lastError = $null
+    
+    while (-not $success -and $retryCount -lt $MaxRetries) {
+        $retryCount++
         
-        Write-Host "  [OK] Successfully called Graph API!" -ForegroundColor Green
-        Write-Host "  Retrieved $($response.value.Count) users:`n" -ForegroundColor Gray
-        
-        # Display users in a formatted table
-        $userTable = $response.value | Select-Object @{
-            Name       = 'Display Name'
-            Expression = { $_.displayName }
-        }, @{
-            Name       = 'User Principal Name'
-            Expression = { $_.userPrincipalName }
-        }, @{
-            Name       = 'ID'
-            Expression = { $_.id }
-        } | Format-Table -AutoSize | Out-String
-        
-        Write-Host $userTable
-        
-        return $true
-    }
-    catch {
-        Write-Host "  [ERROR] Failed to call Graph API" -ForegroundColor Red
-        Write-Host "  Error: $_" -ForegroundColor Red
-        
-        # Show token claims to help diagnose
-        Write-Host "`n  [INFO] Token claims (to verify permissions):" -ForegroundColor Yellow
         try {
-            $claims = Get-DecodedJwtToken -Token $AccessToken | ConvertFrom-Json
-            Write-Host "  - Audience: $($claims.aud)" -ForegroundColor Gray
-            Write-Host "  - App ID: $($claims.appid)" -ForegroundColor Gray
-            if ($claims.roles) {
-                Write-Host "  - Roles: $($claims.roles -join ', ')" -ForegroundColor Gray
+            $response = Invoke-RestMethod -Method GET `
+                -Uri "https://graph.microsoft.com/v1.0/users?`$top=5" `
+                -Headers @{
+                "Authorization" = "Bearer $AccessToken"
+                "Content-Type"  = "application/json"
             }
-            else {
-                Write-Host "  - Roles: NONE (permissions not yet in token)" -ForegroundColor Yellow
-            }
+            
+            Write-Host "  [OK] Successfully called Graph API!" -ForegroundColor Green
+            Write-Host "  Retrieved $($response.value.Count) users:`n" -ForegroundColor Gray
+            
+            # Display users in a formatted table
+            $userTable = $response.value | Select-Object @{
+                Name       = 'Display Name'
+                Expression = { $_.displayName }
+            }, @{
+                Name       = 'User Principal Name'
+                Expression = { $_.userPrincipalName }
+            }, @{
+                Name       = 'ID'
+                Expression = { $_.id }
+            } | Format-Table -AutoSize | Out-String
+            
+            Write-Host $userTable
+            
+            $success = $true
+            return $true
         }
         catch {
-            Write-Host "  Could not decode token claims" -ForegroundColor Gray
+            $lastError = $_
+            
+            if ($retryCount -lt $MaxRetries) {
+                Write-Host "  [WAIT] Attempt $retryCount/$MaxRetries failed. Waiting $RetryDelaySeconds seconds before retry..." -ForegroundColor Yellow
+                Write-Host "  Error: $($_.Exception.Message)" -ForegroundColor Gray
+                Start-Sleep -Seconds $RetryDelaySeconds
+            }
         }
-        
-        Write-Host "`n  [TIP] Tip: Permissions may take few minutes to fully propagate in Entra." -ForegroundColor Cyan
-        Write-Host "      Try getting a new token in a few minutes if roles are missing.`n" -ForegroundColor Cyan
-        
-        return $false
     }
+    
+    # All retries exhausted - show error details
+    Write-Host "  [ERROR] Failed to call Graph API after $MaxRetries attempts" -ForegroundColor Red
+    Write-Host "  Error: $lastError" -ForegroundColor Red
+    
+    # Show token claims to help diagnose
+    Write-Host "`n  [INFO] Token claims (to verify permissions):" -ForegroundColor Yellow
+    try {
+        $claims = Get-DecodedJwtToken -Token $AccessToken | ConvertFrom-Json
+        Write-Host "  - Audience: $($claims.aud)" -ForegroundColor Gray
+        Write-Host "  - App ID: $($claims.appid)" -ForegroundColor Gray
+        if ($claims.roles) {
+            Write-Host "  - Roles: $($claims.roles -join ', ')" -ForegroundColor Gray
+        }
+        else {
+            Write-Host "  - Roles: NONE (permissions not yet in token)" -ForegroundColor Yellow
+        }
+    }
+    catch {
+        Write-Host "  Could not decode token claims" -ForegroundColor Gray
+    }
+    
+    Write-Host "`n  [TIP] Tip: Permissions may take few minutes to fully propagate in Entra." -ForegroundColor Cyan
+    Write-Host "      Try getting a new token in a few minutes if roles are missing.`n" -ForegroundColor Cyan
+    
+    return $false
 }
 
 #endregion
