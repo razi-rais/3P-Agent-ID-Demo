@@ -270,6 +270,45 @@ function Connect-EntraAgentIDEnvironment {
         Write-Host "  ✅ Successfully authenticated!" -ForegroundColor Green
         Write-Host "     Account:   $($currentContext.Account)" -ForegroundColor White
         Write-Host "     Tenant ID: $($currentContext.TenantId)" -ForegroundColor White
+        
+        # Verify scopes were granted (especially important for Cloud Shell)
+        if ($currentContext.Scopes) {
+            Write-Host "     Scopes:    $($currentContext.Scopes -join ', ')" -ForegroundColor Gray
+            
+            # Check if required scopes are present
+            $stillMissingScopes = $requiredScopes | Where-Object { $_ -notin $currentContext.Scopes }
+            
+            if ($stillMissingScopes.Count -gt 0) {
+                Write-Host ""
+                Write-Host "  ⚠️  WARNING: Required scopes were not granted!" -ForegroundColor Yellow
+                Write-Host "     Missing: $($stillMissingScopes -join ', ')" -ForegroundColor Gray
+                Write-Host ""
+                
+                if ($isCloudShell) {
+                    Write-Host "  🚫 Cloud Shell Limitation" -ForegroundColor Red
+                    Write-Host "     Azure Cloud Shell cannot request delegated permissions for Agent Identity" -ForegroundColor Gray
+                    Write-Host "     operations because it uses a system-managed authentication token." -ForegroundColor Gray
+                    Write-Host ""
+                    Write-Host "  ✅ Solution: Use Local PowerShell" -ForegroundColor Green
+                    Write-Host "     Agent Identity Blueprint creation requires user consent for scopes:" -ForegroundColor White
+                    Write-Host "       • AgentIdentityBlueprint.Create" -ForegroundColor Cyan
+                    Write-Host "       • AgentIdentityBlueprint.AddRemoveCreds.All" -ForegroundColor Cyan
+                    Write-Host "       • AgentIdentityBlueprintPrincipal.Create" -ForegroundColor Cyan
+                    Write-Host ""
+                    Write-Host "     These scopes require interactive consent which Cloud Shell cannot provide." -ForegroundColor White
+                    Write-Host ""
+                    Write-Host "  📥 How to run locally:" -ForegroundColor Cyan
+                    Write-Host "     1. Open PowerShell on your local machine" -ForegroundColor White
+                    Write-Host "     2. git clone https://github.com/razi-rais/3P-Agent-ID-Demo.git" -ForegroundColor White
+                    Write-Host "     3. cd 3P-Agent-ID-Demo" -ForegroundColor White
+                    Write-Host "     4. . ./EntraAgentID-Functions.ps1" -ForegroundColor White
+                    Write-Host "     5. Start-EntraAgentIDWorkflow" -ForegroundColor White
+                    Write-Host ""
+                    
+                    throw "Cloud Shell cannot obtain required Agent Identity scopes. Please run from local machine."
+                }
+            }
+        }
     }
     
     Write-Host ""
@@ -307,48 +346,15 @@ function New-AgentIdentityBlueprint {
     
     Write-Host "📋 Step 2: Creating Agent Identity Blueprint..." -ForegroundColor Cyan
     
-    # Detect if running in Azure Cloud Shell
-    $isCloudShell = $env:ACC_CLOUD -or $env:AZUREPS_HOST_ENVIRONMENT -eq 'cloud-shell/1.0'
-    
-    if ($isCloudShell) {
-        Write-Host ""
-        Write-Host "  ⚠️  WARNING: Running in Azure Cloud Shell" -ForegroundColor Yellow
-        Write-Host "     Cloud Shell may not have sufficient permissions to create applications." -ForegroundColor Gray
-        Write-Host "     If you encounter 'Authorization_RequestDenied' errors, please:" -ForegroundColor Gray
-        Write-Host "     1. Run this script from your local machine instead, OR" -ForegroundColor Gray
-        Write-Host "     2. Ensure your user account has Application Administrator role" -ForegroundColor Gray
-        Write-Host ""
-    }
-    
     # Generate blueprint name with timestamp if not provided
     if (-not $BlueprintName) {
         $BlueprintName = "RZ PoC Agent Blueprint " + (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
     }
     
     # Get current user ID
-    try {
-        $me = Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/me"
-        $myUserId = $me.id
-        Write-Host "  User ID: $myUserId" -ForegroundColor Gray
-    }
-    catch {
-        Write-Host ""
-        Write-Host "  ❌ Failed to get user information from Microsoft Graph" -ForegroundColor Red
-        Write-Host "     Error: $($_.Exception.Message)" -ForegroundColor Gray
-        Write-Host ""
-        
-        if ($isCloudShell) {
-            Write-Host "  💡 Cloud Shell Limitation Detected" -ForegroundColor Yellow
-            Write-Host "     Azure Cloud Shell uses a system identity that may not have the required" -ForegroundColor Gray
-            Write-Host "     permissions to create applications and blueprints." -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "  Recommended Solution:" -ForegroundColor Cyan
-            Write-Host "     Run this script from your local PowerShell environment instead." -ForegroundColor White
-            Write-Host "     Local execution provides full access with your user credentials." -ForegroundColor White
-            Write-Host ""
-        }
-        throw $_
-    }
+    $me = Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/me"
+    $myUserId = $me.id
+    Write-Host "  User ID: $myUserId" -ForegroundColor Gray
     
     # Create blueprint
     $body = @{
@@ -358,49 +364,10 @@ function New-AgentIdentityBlueprint {
         "owners@odata.bind"   = @("https://graph.microsoft.com/v1.0/users/$myUserId")
     }
     
-    try {
-        $blueprint = Invoke-MgGraphRequest -Method POST `
-            -Uri "https://graph.microsoft.com/beta/applications/" `
-            -Headers @{ "OData-Version" = "4.0" } `
-            -Body ($body | ConvertTo-Json)
-    }
-    catch {
-        Write-Host ""
-        Write-Host "  ❌ Failed to create Agent Identity Blueprint" -ForegroundColor Red
-        
-        if ($_.Exception.Message -like "*Authorization_RequestDenied*" -or $_.Exception.Message -like "*403*") {
-            Write-Host ""
-            Write-Host "  🚫 Permission Denied - Insufficient Privileges" -ForegroundColor Yellow
-            Write-Host ""
-            
-            if ($isCloudShell) {
-                Write-Host "  💡 Cloud Shell Limitation" -ForegroundColor Cyan
-                Write-Host "     Azure Cloud Shell's authentication method doesn't support creating" -ForegroundColor Gray
-                Write-Host "     applications and Agent Identity Blueprints due to security restrictions." -ForegroundColor Gray
-                Write-Host ""
-                Write-Host "  ✅ Solution: Run from Local Machine" -ForegroundColor Green
-                Write-Host "     1. Open PowerShell on your local computer" -ForegroundColor White
-                Write-Host "     2. Clone the repo: git clone https://github.com/razi-rais/3P-Agent-ID-Demo.git" -ForegroundColor White
-                Write-Host "     3. Run the script locally with your user credentials" -ForegroundColor White
-                Write-Host ""
-            } else {
-                Write-Host "  Required Permissions:" -ForegroundColor Cyan
-                Write-Host "     • Application Administrator role, OR" -ForegroundColor White
-                Write-Host "     • Global Administrator role, OR" -ForegroundColor White
-                Write-Host "     • Custom role with Application.ReadWrite.All permissions" -ForegroundColor White
-                Write-Host ""
-                Write-Host "  To grant permissions:" -ForegroundColor Cyan
-                Write-Host "     1. Go to Entra Admin Center → Users → Your User" -ForegroundColor White
-                Write-Host "     2. Assigned roles → Add assignments" -ForegroundColor White
-                Write-Host "     3. Select 'Application Administrator' role" -ForegroundColor White
-                Write-Host ""
-            }
-        }
-        
-        Write-Host "  Error Details: $($_.Exception.Message)" -ForegroundColor Gray
-        Write-Host ""
-        throw $_
-    }
+    $blueprint = Invoke-MgGraphRequest -Method POST `
+        -Uri "https://graph.microsoft.com/beta/applications/" `
+        -Headers @{ "OData-Version" = "4.0" } `
+        -Body ($body | ConvertTo-Json)
     
     Write-Host "  ✅ Blueprint created: $($blueprint.appId)" -ForegroundColor Green
     
