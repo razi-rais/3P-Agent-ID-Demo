@@ -42,10 +42,10 @@ function Get-DecodedJwtToken {
 function Connect-EntraAgentIDEnvironment {
     <#
     .SYNOPSIS
-    Connects to Azure and Microsoft Graph with required permissions.
+    Connects to Azure and Microsoft Graph with required permissions using user identity.
     
     .PARAMETER TenantId
-    The Entra tenant ID. If not provided, will attempt to get from Azure CLI.
+    The Entra tenant ID. If not provided, will attempt to get from current context.
     #>
     param(
         [Parameter(Mandatory = $false)]
@@ -54,13 +54,6 @@ function Connect-EntraAgentIDEnvironment {
     
     Write-Host "🔐 Step 1: Connecting to Azure and Microsoft Graph..." -ForegroundColor Cyan
     Write-Host ""
-    
-    # Detect if running in Azure Cloud Shell
-    $isCloudShell = $env:ACC_CLOUD -or $env:AZUREPS_HOST_ENVIRONMENT -eq 'cloud-shell/1.0'
-    
-    if ($isCloudShell) {
-        Write-Host "  ℹ️  Detected Azure Cloud Shell environment" -ForegroundColor Cyan
-    }
     
     # Check current Graph connection first
     $currentContext = Get-MgContext -ErrorAction SilentlyContinue
@@ -81,23 +74,21 @@ function Connect-EntraAgentIDEnvironment {
         Write-Host ""
     }
     
-    # Get tenant ID from Azure CLI/PowerShell if still not available
+    # Get tenant ID from Azure context if still not available
     if (-not $TenantId) {
         try {
-            # Try Azure PowerShell first
             $context = Get-AzContext -ErrorAction SilentlyContinue
             if ($context) {
                 $TenantId = $context.Tenant.Id
-                Write-Host "  Found tenant from Azure PowerShell context: $TenantId" -ForegroundColor Gray
+                Write-Host "  Found tenant from Azure context: $TenantId" -ForegroundColor Gray
             }
         }
         catch {
-            # Ignore error, try Azure CLI
+            # Ignore error
         }
         
         if (-not $TenantId) {
             try {
-                # Try Azure CLI
                 $TenantId = az account show --query tenantId -o tsv 2>$null
                 if ($TenantId) {
                     Write-Host "  Found tenant from Azure CLI: $TenantId" -ForegroundColor Gray
@@ -109,78 +100,8 @@ function Connect-EntraAgentIDEnvironment {
         }
     }
     
-    # If we still don't have tenant ID, help user login
     if (-not $TenantId) {
-        Write-Host "❌ No tenant ID available and not logged in" -ForegroundColor Red
-        Write-Host ""
-        Write-Host "Let's get you signed in to Azure..." -ForegroundColor Yellow
-        Write-Host ""
-        
-        # Check if Az module is available
-        $azModuleAvailable = Get-Module -Name Az.Accounts -ListAvailable -ErrorAction SilentlyContinue
-        
-        if ($azModuleAvailable) {
-            Write-Host "🔐 Signing in with Azure PowerShell..." -ForegroundColor Cyan
-            Write-Host ""
-            
-            # Skip interactive login in Cloud Shell (already authenticated)
-            if ($isCloudShell) {
-                Write-Host "  ℹ️  Cloud Shell detected - using existing authentication" -ForegroundColor Cyan
-                $context = Get-AzContext
-                if ($context) {
-                    $TenantId = $context.Tenant.Id
-                    Write-Host ""
-                    Write-Host "  ✅ Using Cloud Shell authentication" -ForegroundColor Green
-                    Write-Host "     Account:   $($context.Account.Id)" -ForegroundColor White
-                    Write-Host "     Tenant ID: $TenantId" -ForegroundColor White
-                    Write-Host ""
-                }
-            }
-            else {
-                # Local environment - use device authentication
-                try {
-                    # Use device code flow for consistency
-                    Connect-AzAccount -UseDeviceAuthentication
-                    
-                    $context = Get-AzContext
-                    if ($context) {
-                        $TenantId = $context.Tenant.Id
-                        Write-Host ""
-                        Write-Host "  ✅ Successfully signed in!" -ForegroundColor Green
-                        Write-Host "     Account:   $($context.Account.Id)" -ForegroundColor White
-                        Write-Host "     Tenant ID: $TenantId" -ForegroundColor White
-                        Write-Host ""
-                    }
-                }
-                catch {
-                    Write-Host ""
-                    Write-Host "❌ Azure PowerShell login failed: $_" -ForegroundColor Red
-                    Write-Host ""
-                    throw "Failed to sign in. Please try manually: Connect-AzAccount"
-                }
-            }
-        }
-        else {
-            Write-Host "ℹ️  Azure PowerShell module (Az.Accounts) not found" -ForegroundColor Yellow
-            Write-Host ""
-            Write-Host "Please sign in using one of these methods:" -ForegroundColor Yellow
-            Write-Host ""
-            Write-Host "Option 1 - Install and use Azure PowerShell (recommended):" -ForegroundColor Cyan
-            Write-Host "  Install-Module -Name Az.Accounts -Scope CurrentUser -Force" -ForegroundColor White
-            Write-Host "  Connect-AzAccount" -ForegroundColor White
-            Write-Host ""
-            Write-Host "Option 2 - Use Azure CLI:" -ForegroundColor Cyan
-            Write-Host "  az login" -ForegroundColor White
-            Write-Host ""
-            Write-Host "Option 3 - Provide tenant ID directly:" -ForegroundColor Cyan
-            Write-Host "  Connect-EntraAgentIDEnvironment -TenantId '<your-tenant-id>'" -ForegroundColor White
-            Write-Host ""
-            throw "No Azure context found. Please sign in first using one of the options above."
-        }
-    }
-    
-    if (-not $TenantId) {
-        throw "Failed to obtain tenant ID after sign-in attempt."
+        throw "No tenant ID available. Please sign in first with: Connect-AzAccount or az login"
     }
     
     # Check required scopes
@@ -208,123 +129,49 @@ function Connect-EntraAgentIDEnvironment {
             Write-Host ""
         }
     } else {
-        Write-Host "  🔄 Connecting to Microsoft Graph with device code flow..." -ForegroundColor Cyan
+        Write-Host "  🔄 Connecting to Microsoft Graph..." -ForegroundColor Cyan
         Write-Host ""
         $needsReconnect = $true
     }
     
-    # Connect to Microsoft Graph (or reconnect with new permissions)
+    # Connect to Microsoft Graph with user identity (device code flow)
     if ($needsReconnect) {
         Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
         
-        if ($isCloudShell) {
-            # In Cloud Shell, use the existing Azure context (managed identity or user token)
-            Write-Host "  🔄 Connecting to Microsoft Graph using Cloud Shell authentication..." -ForegroundColor Cyan
-            Write-Host ""
-            
-            try {
-                # Try using access token from Azure PowerShell context
-                $azToken = Get-AzAccessToken -ResourceUrl "https://graph.microsoft.com" -ErrorAction Stop
-                
-                # Connect using the token directly
-                Connect-MgGraph -AccessToken $azToken.Token -ErrorAction Stop
-                
-                Write-Host "  ✅ Connected using Cloud Shell authentication" -ForegroundColor Green
-            }
-            catch {
-                Write-Host "  ⚠️  Failed to use Cloud Shell token, trying standard auth..." -ForegroundColor Yellow
-                Write-Host "     Error: $_" -ForegroundColor Gray
-                Write-Host ""
-                
-                # Fallback to standard connection (no device code in Cloud Shell)
-                try {
-                    Connect-MgGraph -Scopes $requiredScopes -TenantId $TenantId -NoWelcome -ErrorAction Stop
-                }
-                catch {
-                    Write-Host ""
-                    Write-Host "  ❌ Failed to connect to Microsoft Graph in Cloud Shell" -ForegroundColor Red
-                    Write-Host "     This may be due to permission requirements." -ForegroundColor Yellow
-                    Write-Host ""
-                    Write-Host "  Suggested solutions:" -ForegroundColor Yellow
-                    Write-Host "    1. Run this script on your local machine instead of Cloud Shell" -ForegroundColor White
-                    Write-Host "    2. Ensure your Cloud Shell account has required Graph permissions" -ForegroundColor White
-                    Write-Host "    3. Use a service principal with appropriate permissions" -ForegroundColor White
-                    throw $_
-                }
-            }
-        }
-        else {
-            # Local environment - use device code flow
-            Write-Host "  Please complete authentication using device code flow:" -ForegroundColor Yellow
-            Write-Host "  1. Copy the code that will be displayed" -ForegroundColor White
-            Write-Host "  2. Open the URL in your browser" -ForegroundColor White
-            Write-Host "  3. Enter the code and sign in" -ForegroundColor White
-            Write-Host ""
-            
-            Connect-MgGraph -Scopes $requiredScopes -TenantId $TenantId -UseDeviceCode
-        }
+        Write-Host "  Please complete authentication using device code flow:" -ForegroundColor Yellow
+        Write-Host "  1. Copy the code that will be displayed" -ForegroundColor White
+        Write-Host "  2. Open the URL in your browser" -ForegroundColor White
+        Write-Host "  3. Enter the code and sign in with your user account" -ForegroundColor White
+        Write-Host ""
+        
+        Connect-MgGraph -Scopes $requiredScopes -TenantId $TenantId -UseDeviceCode
         
         # Get updated context after connection
         $currentContext = Get-MgContext
         Write-Host ""
         
-        # Verify scopes were granted (especially important for Cloud Shell)
+        # Verify scopes were granted
         $stillMissingScopes = @()
         if ($currentContext.Scopes) {
-            # Check if required scopes are present
             $stillMissingScopes = $requiredScopes | Where-Object { $_ -notin $currentContext.Scopes }
         }
         
         if ($stillMissingScopes.Count -gt 0) {
-            Write-Host "  ⚠️  Authentication completed but required scopes NOT granted" -ForegroundColor Yellow
+            Write-Host "  ❌ Required scopes were NOT granted" -ForegroundColor Red
             Write-Host "     Account:   $($currentContext.Account)" -ForegroundColor Gray
             Write-Host "     Tenant ID: $($currentContext.TenantId)" -ForegroundColor Gray
             Write-Host "     Missing:   $($stillMissingScopes -join ', ')" -ForegroundColor Red
             Write-Host ""
-            
-            if ($isCloudShell) {
-                Write-Host "  🚫 Cloud Shell Limitation" -ForegroundColor Red
-                Write-Host "     Azure Cloud Shell cannot request delegated permissions for Agent Identity" -ForegroundColor Gray
-                Write-Host "     operations because it uses a system-managed authentication token." -ForegroundColor Gray
-                Write-Host ""
-                Write-Host "  ✅ Solution: Use Local PowerShell" -ForegroundColor Green
-                Write-Host "     Agent Identity Blueprint creation requires user consent for scopes:" -ForegroundColor White
-                Write-Host "       • AgentIdentityBlueprint.Create" -ForegroundColor Cyan
-                Write-Host "       • AgentIdentityBlueprint.AddRemoveCreds.All" -ForegroundColor Cyan
-                Write-Host "       • AgentIdentityBlueprintPrincipal.Create" -ForegroundColor Cyan
-                Write-Host ""
-                Write-Host "     These scopes require interactive consent which Cloud Shell cannot provide." -ForegroundColor White
-                Write-Host ""
-                Write-Host "  📥 How to run locally:" -ForegroundColor Cyan
-                Write-Host "     1. Open PowerShell on your local machine" -ForegroundColor White
-                Write-Host "     2. git clone https://github.com/razi-rais/3P-Agent-ID-Demo.git" -ForegroundColor White
-                Write-Host "     3. cd 3P-Agent-ID-Demo" -ForegroundColor White
-                Write-Host "     4. . ./EntraAgentID-Functions.ps1" -ForegroundColor White
-                Write-Host "     5. Start-EntraAgentIDWorkflow" -ForegroundColor White
-                Write-Host ""
-                
-                throw "Cloud Shell cannot obtain required Agent Identity scopes. Please run from local machine."
-            } else {
-                Write-Host "  💡 The connection succeeded but Microsoft Graph did not grant the requested scopes." -ForegroundColor Yellow
-                Write-Host ""
-                Write-Host "  Possible reasons:" -ForegroundColor Cyan
-                Write-Host "     • Your account lacks admin consent for these permissions" -ForegroundColor White
-                Write-Host "     • The scopes require admin consent in your tenant" -ForegroundColor White
-                Write-Host "     • Your account needs Application Administrator or Global Administrator role" -ForegroundColor White
-                Write-Host ""
-                Write-Host "  To resolve:" -ForegroundColor Cyan
-                Write-Host "     1. Ask your Global Administrator to grant admin consent" -ForegroundColor White
-                Write-Host "     2. Or get Application Administrator role assigned to your account" -ForegroundColor White
-                Write-Host ""
-                
-                throw "Required Microsoft Graph scopes were not granted. See above for resolution steps."
-            }
-        } else {
-            Write-Host "  ✅ Successfully authenticated!" -ForegroundColor Green
-            Write-Host "     Account:   $($currentContext.Account)" -ForegroundColor White
-            Write-Host "     Tenant ID: $($currentContext.TenantId)" -ForegroundColor White
-            Write-Host "     Scopes:    $($currentContext.Scopes.Count) granted" -ForegroundColor Gray
+            Write-Host "  💡 Your account may need admin consent for these permissions." -ForegroundColor Yellow
+            Write-Host "     Contact your Global Administrator or get Application Administrator role." -ForegroundColor Gray
+            Write-Host ""
+            throw "Required Microsoft Graph scopes were not granted."
         }
+        
+        Write-Host "  ✅ Successfully authenticated!" -ForegroundColor Green
+        Write-Host "     Account:   $($currentContext.Account)" -ForegroundColor White
+        Write-Host "     Tenant ID: $($currentContext.TenantId)" -ForegroundColor White
+        Write-Host "     Scopes:    $($currentContext.Scopes.Count) granted" -ForegroundColor Gray
     }
     
     Write-Host ""
