@@ -228,8 +228,8 @@ pwsh
 $tenantId = (az account show --query tenantId -o tsv)
 Write-Host "Tenant ID: $tenantId"
 
-# Connect to Microsoft Graph with required Agent Identity scopes
-Connect-MgGraph -Scopes "AgentIdentityBlueprint.AddRemoveCreds.All","AgentIdentityBlueprint.Create","DelegatedPermissionGrant.ReadWrite.All","Application.Read.All","AgentIdentityBlueprintPrincipal.Create","AppRoleAssignment.ReadWrite.All","User.Read" -TenantId $tenantId -UseDeviceCode
+# Connect to Microsoft Graph with required Agent Identity scopes [In Azure Cloud Shell you may want to add -UseDeviceCode]
+Connect-MgGraph -Scopes "AgentIdentityBlueprint.AddRemoveCreds.All","AgentIdentityBlueprint.Create","DelegatedPermissionGrant.ReadWrite.All","Application.Read.All","AgentIdentityBlueprintPrincipal.Create","AppRoleAssignment.ReadWrite.All","User.Read" -TenantId $tenantId 
 ```
 
 **What happens:**
