@@ -207,9 +207,6 @@ Open your terminal and sign in to Azure with your tenant ID:
 ```bash
 # Azure CLI login with tenant ID (use device code if in Cloud Shell)
 az login --use-device-code --tenant <your-tenant-id>
-
-# Example:
-# az login --use-device-code --tenant 9c5d5b12-72f9-422d-9f50-6fba35f988ab
 ```
 
 > 💡 **Why specify tenant ID?** Some users may not have any subscriptions, or may have access to multiple tenants. Specifying the tenant ID ensures you authenticate to the correct Entra ID tenant.
