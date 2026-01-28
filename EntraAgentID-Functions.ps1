@@ -174,15 +174,60 @@ function New-AgentIdentityBlueprint {
     
     Write-Host "📋 Step 2: Creating Agent Identity Blueprint..." -ForegroundColor Cyan
     
+    # Verify Microsoft Graph connection before proceeding
+    $currentContext = Get-MgContext -ErrorAction SilentlyContinue
+    if (-not $currentContext) {
+        Write-Host ""
+        Write-Host "  ERROR: Microsoft Graph connection lost" -ForegroundColor Red
+        Write-Host "  Please reconnect and try again:" -ForegroundColor Yellow
+        Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId -UseDeviceCode" -ForegroundColor White
+        Write-Host ""
+        throw "Not connected to Microsoft Graph"
+    }
+    
+    Write-Host "  Current connection: $($currentContext.Account)" -ForegroundColor Gray
+    Write-Host "  Tenant: $($currentContext.TenantId)" -ForegroundColor Gray
+    Write-Host ""
+    
     # Generate blueprint name with timestamp if not provided
     if (-not $BlueprintName) {
         $BlueprintName = "RZ PoC Agent Blueprint " + (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
     }
     
     # Get current user ID
-    $me = Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/me"
-    $myUserId = $me.id
-    Write-Host "  User ID: $myUserId" -ForegroundColor Gray
+    try {
+        Write-Host "  Getting user information..." -ForegroundColor Gray
+        $me = Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/me" -ErrorAction Stop
+        $myUserId = $me.id
+        Write-Host "  User ID: $myUserId" -ForegroundColor Gray
+    }
+    catch {
+        Write-Host ""
+        Write-Host "  ERROR: Failed to get user information from Microsoft Graph" -ForegroundColor Red
+        Write-Host "  Error details: $($_.Exception.Message)" -ForegroundColor Gray
+        Write-Host ""
+        
+        if ($_.Exception.Message -like "*DeviceCodeCredential*") {
+            Write-Host "  DeviceCodeCredential error detected" -ForegroundColor Yellow
+            Write-Host "  This usually means the connection needs to be refreshed." -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "  Please disconnect and reconnect:" -ForegroundColor Cyan
+            Write-Host "  Disconnect-MgGraph" -ForegroundColor White
+            Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId -UseDeviceCode" -ForegroundColor White
+            Write-Host ""
+        } else {
+            Write-Host "  This may indicate:" -ForegroundColor Yellow
+            Write-Host "  - Microsoft.Graph module version mismatch" -ForegroundColor White
+            Write-Host "  - Expired or invalid authentication token" -ForegroundColor White
+            Write-Host "  - Network connectivity issues" -ForegroundColor White
+            Write-Host ""
+            Write-Host "  Try reconnecting:" -ForegroundColor Cyan
+            Write-Host "  Disconnect-MgGraph" -ForegroundColor White
+            Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId -UseDeviceCode" -ForegroundColor White
+            Write-Host ""
+        }
+        throw $_
+    }
     
     # Create blueprint
     $body = @{
