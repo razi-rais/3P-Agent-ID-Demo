@@ -149,7 +149,7 @@ function Connect-EntraAgentIDEnvironment {
         TenantId = $TenantId
         Account  = $currentContext.Account
     }
-}#endregion
+} #endregion
 
 #region Step 2: Blueprint Creation 
 
