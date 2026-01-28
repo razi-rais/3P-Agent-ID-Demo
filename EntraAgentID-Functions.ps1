@@ -255,7 +255,7 @@ function New-AgentIdentityBlueprint {
     Write-Host "  [OK] Blueprint Principal created: $($principal.id)" -ForegroundColor Green
     
     # Wait for principal to propagate
-    Write-Host "  ⏳ Waiting for principal to propagate..." -ForegroundColor Gray
+    Write-Host "  [WAIT] Waiting for principal to propagate..." -ForegroundColor Gray
     Start-Sleep -Seconds 5
     
     # Add client secret
@@ -285,7 +285,7 @@ function New-AgentIdentityBlueprint {
     Write-Host ""
     
     # Verify the secret works before proceeding
-    Write-Host "  ⏳ Verifying client secret is valid..." -ForegroundColor Yellow
+    Write-Host "  [WAIT] Verifying client secret is valid..." -ForegroundColor Yellow
     $maxRetries = 10
     $retryCount = 0
     $secretValid = $false
@@ -313,7 +313,7 @@ function New-AgentIdentityBlueprint {
         catch {
             $retryCount++
             if ($retryCount -lt $maxRetries) {
-                Write-Host "  ⏳ Secret not ready yet, waiting... (attempt $retryCount/$maxRetries)" -ForegroundColor Yellow
+                Write-Host "  [WAIT] Secret not ready yet, waiting... (attempt $retryCount/$maxRetries)" -ForegroundColor Yellow
                 Start-Sleep -Seconds 3
             }
             else {
@@ -375,7 +375,7 @@ function New-AgentIdentity {
         [string]$UserId
     )
     
-    Write-Host "🤖 Step 3: Creating Agent Identity..." -ForegroundColor Cyan
+    Write-Host "[AGENT] Step 3: Creating Agent Identity..." -ForegroundColor Cyan
     
     # Generate agent name with timestamp if not provided
     if (-not $AgentName) {
@@ -491,7 +491,7 @@ function Get-AgentIdentityToken {
         [switch]$ShowClaims
     )
     
-    Write-Host "🔄 Step 4: Performing Token Exchange (T1 → T2)..." -ForegroundColor Cyan
+    Write-Host "[SYNC] Step 4: Performing Token Exchange (T1 -> T2)..." -ForegroundColor Cyan
     
     # Get T1 token (Blueprint impersonation token)
     $t1Body = @{
@@ -572,7 +572,7 @@ function Add-AgentIdentityPermissions {
     Write-Host "[LOCK] Step 5: Adding Permissions to Agent Identity..." -ForegroundColor Cyan
     
     # Wait for agent service principal to be queryable
-    Write-Host "  ⏳ Verifying agent service principal is available..." -ForegroundColor Yellow
+    Write-Host "  [WAIT] Verifying agent service principal is available..." -ForegroundColor Yellow
     $maxRetries = 10
     $retryCount = 0
     $spExists = $false
@@ -588,7 +588,7 @@ function Add-AgentIdentityPermissions {
         catch {
             $retryCount++
             if ($retryCount -lt $maxRetries) {
-                Write-Host "  ⏳ Waiting for service principal propagation (attempt $retryCount/$maxRetries)..." -ForegroundColor Yellow
+                Write-Host "  [WAIT] Waiting for service principal propagation (attempt $retryCount/$maxRetries)..." -ForegroundColor Yellow
                 Start-Sleep -Seconds 3
             }
         }
@@ -656,7 +656,7 @@ function Add-AgentIdentityPermissions {
         }
         catch {
             if ($_.Exception.Message -like "*already exists*") {
-                Write-Host "  ℹ️  Permission already exists: $permission" -ForegroundColor Yellow
+                Write-Host "  [INFO]  Permission already exists: $permission" -ForegroundColor Yellow
             }
             else {
                 Write-Error "  [ERROR] Failed to add $permission : $_"
@@ -684,7 +684,7 @@ function Test-AgentIdentityToken {
         [string]$AccessToken
     )
     
-    Write-Host "🧪 Step 6: Testing Agent Identity Token..." -ForegroundColor Cyan
+    Write-Host "[TEST] Step 6: Testing Agent Identity Token..." -ForegroundColor Cyan
     
     try {
         $response = Invoke-RestMethod -Method GET `
@@ -734,7 +734,7 @@ function Test-AgentIdentityToken {
             Write-Host "  Could not decode token claims" -ForegroundColor Gray
         }
         
-        Write-Host "`n  💡 Tip: Permissions may take few minutes to fully propagate in Entra." -ForegroundColor Cyan
+        Write-Host "`n  [TIP] Tip: Permissions may take few minutes to fully propagate in Entra." -ForegroundColor Cyan
         Write-Host "      Try getting a new token in a few minutes if roles are missing.`n" -ForegroundColor Cyan
         
         return $false
@@ -802,7 +802,7 @@ function Start-EntraAgentIDWorkflow {
     Write-Host "║  Microsoft Entra Agent ID - Complete Workflow            ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════╝`n" -ForegroundColor Cyan
     
-    Write-Host "ℹ️  Note: This workflow creates NEW blueprint and agent identities each time." -ForegroundColor Yellow
+    Write-Host "[INFO]  Note: This workflow creates NEW blueprint and agent identities each time." -ForegroundColor Yellow
     Write-Host "   Old blueprints will remain in your tenant until manually deleted." -ForegroundColor Yellow
     Write-Host ""
   
@@ -812,14 +812,14 @@ function Start-EntraAgentIDWorkflow {
         Start-Sleep -Seconds 1
         
         # Step 2: Create Blueprint (always creates a new one)
-        Write-Host "📝 Creating a NEW blueprint for this workflow..." -ForegroundColor Cyan
+        Write-Host "[NOTE] Creating a NEW blueprint for this workflow..." -ForegroundColor Cyan
         $blueprintParams = @{
             BlueprintName = $BlueprintName
             TenantId      = $connection.TenantId
         }
         
         $blueprint = New-AgentIdentityBlueprint @blueprintParams
-        Write-Host "  ⏳ Waiting for blueprint to fully propagate..." -ForegroundColor Gray
+        Write-Host "  [WAIT] Waiting for blueprint to fully propagate..." -ForegroundColor Gray
         Start-Sleep -Seconds 10
         
         # Step 3: Create Agent Identity
@@ -844,12 +844,12 @@ function Start-EntraAgentIDWorkflow {
         Add-AgentIdentityPermissions `
             -AgentIdentitySP $agent.AgentIdentitySP `
             -Permissions $Permissions
-        Write-Host "  ⏳ Waiting for permissions to propagate (15 seconds)..." -ForegroundColor Gray
+        Write-Host "  [WAIT] Waiting for permissions to propagate (15 seconds)..." -ForegroundColor Gray
         Write-Host "     Note: Permission propagation to new tokens can take 5-10 minutes in Entra" -ForegroundColor Yellow
         Start-Sleep -Seconds 15
         
         # Step 6: Get New Token (with permissions)
-        Write-Host "`n🔄 Getting new token with permissions..." -ForegroundColor Cyan
+        Write-Host "`n[SYNC] Getting new token with permissions..." -ForegroundColor Cyan
         $tokens2 = Get-AgentIdentityToken `
             -BlueprintAppId $blueprint.BlueprintAppId `
             -ClientSecret $blueprint.ClientSecret `
@@ -882,7 +882,7 @@ function Start-EntraAgentIDWorkflow {
             Write-Host "  API Test Result:          $testStatus" -ForegroundColor $(if ($testResult) { "Green" } else { "Yellow" })
             
             if (-not $testResult) {
-                Write-Host "`n💡 To retry the test after permissions propagate (wait 5-10 minutes):" -ForegroundColor Cyan
+                Write-Host "`n[TIP] To retry the test after permissions propagate (wait 5-10 minutes):" -ForegroundColor Cyan
                 Write-Host "   `$newToken = Get-AgentIdentityToken -BlueprintAppId '$($blueprint.BlueprintAppId)' ``" -ForegroundColor Gray
                 Write-Host "       -ClientSecret '<secret>' ``" -ForegroundColor Gray
                 Write-Host "       -AgentIdentityAppId '$($agent.AgentIdentityAppId)' ``" -ForegroundColor Gray
@@ -918,7 +918,7 @@ function Get-AgentIdentityList {
     .SYNOPSIS
     Lists all agent identities in the tenant.
     #>
-    Write-Host "🤖 Agent Identities:" -ForegroundColor Cyan
+    Write-Host "[AGENT] Agent Identities:" -ForegroundColor Cyan
     $agentIdentities = Invoke-MgGraphRequest -Method GET `
         -Uri "https://graph.microsoft.com/beta/servicePrincipals/graph.agentIdentity"
     
