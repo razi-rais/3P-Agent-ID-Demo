@@ -149,7 +149,8 @@ function Connect-EntraAgentIDEnvironment {
         TenantId = $TenantId
         Account  = $currentContext.Account
     }
-} #endregion
+} 
+#endregion
 
 #region Step 2: Blueprint Creation 
 
@@ -754,7 +755,7 @@ function Start-EntraAgentIDWorkflow {
     1. Connect to Azure and Microsoft Graph
     2. Create Agent Identity Blueprint
     3. Create Agent Identity
-    4. Perform Token Exchange (T1 → T2)
+    4. Perform Token Exchange (T1 -> T2)
     5. Add Microsoft Graph Permissions
     6. Get new token with permissions
     7. Test the agent token
