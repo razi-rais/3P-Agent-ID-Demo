@@ -177,7 +177,7 @@ function Connect-EntraAgentIDEnvironment {
     Write-Host ""
     Write-Host "✅ Connected to tenant: $TenantId" -ForegroundColor Green
     Write-Host ""
-    
+     
     return @{
         TenantId = $TenantId
         Account  = $currentContext.Account
