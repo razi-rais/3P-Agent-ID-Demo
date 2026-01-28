@@ -185,7 +185,7 @@ Note: The PowerShell functions automatically request these permissions when you 
 
 ---
 
-## Exercise 1: Clone the Repository
+## Clone the Repository
 
 First, clone this repository to your local machine:
 
@@ -196,17 +196,68 @@ cd 3P-Agent-ID-Demo
 
 ---
 
-## Exercise 2: Automated Workflow (Recommended)
+## Pre-requisite: Authentication Setup
+
+**⚠️ IMPORTANT: Complete these authentication steps BEFORE running any PowerShell scripts.**
+
+### Step 1: Connect to Azure
+
+Open your terminal and sign in to Azure:
+
+```bash
+# Azure CLI login (use device code if in Cloud Shell)
+az login --use-device-code
+```
+
+Wait for authentication to complete and verify your tenant is selected.
+
+### Step 2: Connect to Microsoft Graph
+
+Open PowerShell and authenticate with Microsoft Graph with all required Agent Identity scopes:
+
+```powershell
+# Launch PowerShell (if not already in it)
+pwsh
+
+# Get your tenant ID from Azure context
+$tenantId = (az account show --query tenantId -o tsv)
+Write-Host "Tenant ID: $tenantId"
+
+# Connect to Microsoft Graph with required Agent Identity scopes
+Connect-MgGraph -Scopes "AgentIdentityBlueprint.AddRemoveCreds.All","AgentIdentityBlueprint.Create","DelegatedPermissionGrant.ReadWrite.All","Application.Read.All","AgentIdentityBlueprintPrincipal.Create","AppRoleAssignment.ReadWrite.All","User.Read" -TenantId $tenantId -UseDeviceCode
+```
+
+**What happens:**
+1. A device code will be displayed (e.g., `ERZ7QUVBF`)
+2. Open https://microsoft.com/devicelogin in your browser
+3. Enter the code and sign in with your user account
+4. You'll be asked to consent to the required permissions
+5. Once complete, you'll see "Welcome to Microsoft Graph!" in PowerShell
+
+**✅ Verify your connection:**
+```powershell
+# Check current connection
+Get-MgContext
+
+# Should show:
+# - Your account email
+# - Tenant ID
+# - All 7 required scopes (AgentIdentityBlueprint.*, Application.Read.All, etc.)
+```
+
+> 💡 **Why this is required:** The PowerShell scripts need these permissions to create Agent Identity Blueprints, create agent identities, and assign Graph API permissions. Authenticating first ensures the scripts can perform all operations without interruption.
+
+> 🌐 **Works in Azure Cloud Shell:** Device code authentication works perfectly in Cloud Shell! You can run these commands in Cloud Shell before running the PowerShell scripts.
+
+---
+
+## Automated Workflow (Recommended)
 
 ### What You'll Do
 
 This exercise uses PowerShell functions to automate the complete Agent ID workflow. The script will create a blueprint, create an agent identity, perform token exchange, assign permissions, and test the token by calling Microsoft Graph API.
 
-**IMPORTANT:** Before running the PowerShell functions, you must complete [Part 1: Setup and Authentication](#part-1) (Steps 1 and 2) below to:
-1. Connect to Azure (`az login`)
-2. Connect to Microsoft Graph (`Connect-MgGraph`)
-
-The functions require active authentication sessions to both Azure and Microsoft Graph.
+**IMPORTANT:** Ensure you have completed [Pre-requisite: Authentication Setup](#pre-requisite-authentication-setup) before running this workflow.
 
 ### Run the Workflow
 
@@ -232,7 +283,7 @@ $result.Agent.AgentIdentityAppId  # Agent App ID
 ### What Happens
 
 The workflow performs these steps automatically:
-1. Connects to Azure and Microsoft Graph
+1. ✅ Verifies you're authenticated to Azure and Microsoft Graph
 2. Creates Agent Identity Blueprint with credentials
 3. Creates Agent Identity from blueprint
 4. Performs T1 to T2 token exchange
@@ -252,11 +303,11 @@ The automated workflow includes:
 
 ---
 
-## Exercise 3: Manual Step-by-Step Functions
+## Manual Step-by-Step Functions
 
 You can also run each step individually to understand the process better.
 
-**IMPORTANT:** Before using these functions, ensure you have completed [Part 1: Setup and Authentication](#part-1) (Steps 1 and 2) to authenticate with Azure and Microsoft Graph.
+**IMPORTANT:** Ensure you have completed [Pre-requisite: Authentication Setup](#pre-requisite-authentication-setup) before using these functions.
 
 ```powershell
 # Connect to environment (verifies existing Azure/Graph connections)
