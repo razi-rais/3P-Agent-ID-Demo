@@ -225,8 +225,9 @@ function Connect-EntraAgentIDEnvironment {
             try {
                 # Try using access token from Azure PowerShell context
                 $azToken = Get-AzAccessToken -ResourceUrl "https://graph.microsoft.com" -ErrorAction Stop
-                $secureToken = ConvertTo-SecureString -String $azToken.Token -AsPlainText -Force
-                Connect-MgGraph -AccessToken $secureToken -TenantId $TenantId -ErrorAction Stop
+                
+                # Connect using the token directly
+                Connect-MgGraph -AccessToken $azToken.Token -ErrorAction Stop
                 
                 Write-Host "  ✅ Connected using Cloud Shell authentication" -ForegroundColor Green
             }
