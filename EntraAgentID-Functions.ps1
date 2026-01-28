@@ -55,6 +55,13 @@ function Connect-EntraAgentIDEnvironment {
     Write-Host "🔐 Step 1: Connecting to Azure and Microsoft Graph..." -ForegroundColor Cyan
     Write-Host ""
     
+    # Detect if running in Azure Cloud Shell
+    $isCloudShell = $env:ACC_CLOUD -or $env:AZUREPS_HOST_ENVIRONMENT -eq 'cloud-shell/1.0'
+    
+    if ($isCloudShell) {
+        Write-Host "  ℹ️  Detected Azure Cloud Shell environment" -ForegroundColor Cyan
+    }
+    
     # Check current Graph connection first
     $currentContext = Get-MgContext -ErrorAction SilentlyContinue
     
@@ -116,25 +123,41 @@ function Connect-EntraAgentIDEnvironment {
             Write-Host "🔐 Signing in with Azure PowerShell..." -ForegroundColor Cyan
             Write-Host ""
             
-            try {
-                # Use device code flow for consistency
-                Connect-AzAccount -UseDeviceAuthentication
-                
+            # Skip interactive login in Cloud Shell (already authenticated)
+            if ($isCloudShell) {
+                Write-Host "  ℹ️  Cloud Shell detected - using existing authentication" -ForegroundColor Cyan
                 $context = Get-AzContext
                 if ($context) {
                     $TenantId = $context.Tenant.Id
                     Write-Host ""
-                    Write-Host "  ✅ Successfully signed in!" -ForegroundColor Green
+                    Write-Host "  ✅ Using Cloud Shell authentication" -ForegroundColor Green
                     Write-Host "     Account:   $($context.Account.Id)" -ForegroundColor White
                     Write-Host "     Tenant ID: $TenantId" -ForegroundColor White
                     Write-Host ""
                 }
             }
-            catch {
-                Write-Host ""
-                Write-Host "❌ Azure PowerShell login failed: $_" -ForegroundColor Red
-                Write-Host ""
-                throw "Failed to sign in. Please try manually: Connect-AzAccount"
+            else {
+                # Local environment - use device authentication
+                try {
+                    # Use device code flow for consistency
+                    Connect-AzAccount -UseDeviceAuthentication
+                    
+                    $context = Get-AzContext
+                    if ($context) {
+                        $TenantId = $context.Tenant.Id
+                        Write-Host ""
+                        Write-Host "  ✅ Successfully signed in!" -ForegroundColor Green
+                        Write-Host "     Account:   $($context.Account.Id)" -ForegroundColor White
+                        Write-Host "     Tenant ID: $TenantId" -ForegroundColor White
+                        Write-Host ""
+                    }
+                }
+                catch {
+                    Write-Host ""
+                    Write-Host "❌ Azure PowerShell login failed: $_" -ForegroundColor Red
+                    Write-Host ""
+                    throw "Failed to sign in. Please try manually: Connect-AzAccount"
+                }
             }
         }
         else {
@@ -194,13 +217,51 @@ function Connect-EntraAgentIDEnvironment {
     if ($needsReconnect) {
         Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
         
-        Write-Host "  Please complete authentication using device code flow:" -ForegroundColor Yellow
-        Write-Host "  1. Copy the code that will be displayed" -ForegroundColor White
-        Write-Host "  2. Open the URL in your browser" -ForegroundColor White
-        Write-Host "  3. Enter the code and sign in" -ForegroundColor White
-        Write-Host ""
-        
-        Connect-MgGraph -Scopes $requiredScopes -TenantId $TenantId -UseDeviceCode
+        if ($isCloudShell) {
+            # In Cloud Shell, use the existing Azure context (managed identity or user token)
+            Write-Host "  🔄 Connecting to Microsoft Graph using Cloud Shell authentication..." -ForegroundColor Cyan
+            Write-Host ""
+            
+            try {
+                # Try using access token from Azure PowerShell context
+                $azToken = Get-AzAccessToken -ResourceUrl "https://graph.microsoft.com" -ErrorAction Stop
+                $secureToken = ConvertTo-SecureString -String $azToken.Token -AsPlainText -Force
+                Connect-MgGraph -AccessToken $secureToken -TenantId $TenantId -ErrorAction Stop
+                
+                Write-Host "  ✅ Connected using Cloud Shell authentication" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "  ⚠️  Failed to use Cloud Shell token, trying standard auth..." -ForegroundColor Yellow
+                Write-Host "     Error: $_" -ForegroundColor Gray
+                Write-Host ""
+                
+                # Fallback to standard connection (no device code in Cloud Shell)
+                try {
+                    Connect-MgGraph -Scopes $requiredScopes -TenantId $TenantId -NoWelcome -ErrorAction Stop
+                }
+                catch {
+                    Write-Host ""
+                    Write-Host "  ❌ Failed to connect to Microsoft Graph in Cloud Shell" -ForegroundColor Red
+                    Write-Host "     This may be due to permission requirements." -ForegroundColor Yellow
+                    Write-Host ""
+                    Write-Host "  Suggested solutions:" -ForegroundColor Yellow
+                    Write-Host "    1. Run this script on your local machine instead of Cloud Shell" -ForegroundColor White
+                    Write-Host "    2. Ensure your Cloud Shell account has required Graph permissions" -ForegroundColor White
+                    Write-Host "    3. Use a service principal with appropriate permissions" -ForegroundColor White
+                    throw $_
+                }
+            }
+        }
+        else {
+            # Local environment - use device code flow
+            Write-Host "  Please complete authentication using device code flow:" -ForegroundColor Yellow
+            Write-Host "  1. Copy the code that will be displayed" -ForegroundColor White
+            Write-Host "  2. Open the URL in your browser" -ForegroundColor White
+            Write-Host "  3. Enter the code and sign in" -ForegroundColor White
+            Write-Host ""
+            
+            Connect-MgGraph -Scopes $requiredScopes -TenantId $TenantId -UseDeviceCode
+        }
         
         # Get updated context after connection
         $currentContext = Get-MgContext
