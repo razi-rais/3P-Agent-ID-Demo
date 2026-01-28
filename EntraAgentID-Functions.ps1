@@ -52,14 +52,14 @@ function Connect-EntraAgentIDEnvironment {
         [string]$TenantId
     )
     
-    Write-Host "🔐 Step 1: Connecting to Azure and Microsoft Graph..." -ForegroundColor Cyan
+    Write-Host "[LOCK] Step 1: Connecting to Azure and Microsoft Graph..." -ForegroundColor Cyan
     Write-Host ""
     
     # Check current Graph connection first
     $currentContext = Get-MgContext -ErrorAction SilentlyContinue
     
     if ($currentContext) {
-        Write-Host "📊 Current Microsoft Graph Connection:" -ForegroundColor Cyan
+        Write-Host "[INFO] Current Microsoft Graph Connection:" -ForegroundColor Cyan
         Write-Host "  Account:     $($currentContext.Account)" -ForegroundColor White
         Write-Host "  Tenant ID:   $($currentContext.TenantId)" -ForegroundColor White
         Write-Host "  Scopes:      $($currentContext.Scopes -join ', ')" -ForegroundColor Gray
@@ -70,7 +70,7 @@ function Connect-EntraAgentIDEnvironment {
             $TenantId = $currentContext.TenantId
         }
     } else {
-        Write-Host "⚠️  Not currently logged in to Microsoft Graph" -ForegroundColor Yellow
+        Write-Host "[WARN]  Not currently logged in to Microsoft Graph" -ForegroundColor Yellow
         Write-Host ""
     }
     
@@ -173,7 +173,7 @@ function New-AgentIdentityBlueprint {
         [string]$TenantId
     )
     
-    Write-Host "📋 Step 2: Creating Agent Identity Blueprint..." -ForegroundColor Cyan
+    Write-Host "[INFO] Step 2: Creating Agent Identity Blueprint..." -ForegroundColor Cyan
     
     # Verify Microsoft Graph connection before proceeding
     $currentContext = Get-MgContext -ErrorAction SilentlyContinue
@@ -243,7 +243,7 @@ function New-AgentIdentityBlueprint {
         -Headers @{ "OData-Version" = "4.0" } `
         -Body ($body | ConvertTo-Json)
     
-    Write-Host "  ✅ Blueprint created: $($blueprint.appId)" -ForegroundColor Green
+    Write-Host "  [OK] Blueprint created: $($blueprint.appId)" -ForegroundColor Green
     
     # Create blueprint principal
     $principalBody = @{ appId = $blueprint.appId }
@@ -252,7 +252,7 @@ function New-AgentIdentityBlueprint {
         -Headers @{ "OData-Version" = "4.0" } `
         -Body ($principalBody | ConvertTo-Json)
     
-    Write-Host "  ✅ Blueprint Principal created: $($principal.id)" -ForegroundColor Green
+    Write-Host "  [OK] Blueprint Principal created: $($principal.id)" -ForegroundColor Green
     
     # Wait for principal to propagate
     Write-Host "  ⏳ Waiting for principal to propagate..." -ForegroundColor Gray
@@ -273,14 +273,14 @@ function New-AgentIdentityBlueprint {
     
     # Debug: Check what properties the secret object has
     if (-not $secret.secretText) {
-        Write-Host "  ⚠️  DEBUG: Secret object properties:" -ForegroundColor Yellow
+        Write-Host "  [WARN]  DEBUG: Secret object properties:" -ForegroundColor Yellow
         $secret | ConvertTo-Json -Depth 5 | Write-Host
         Write-Error "Secret object doesn't have 'secretText' property!"
         throw "Failed to get client secret from addPassword response"
     }
     
-    Write-Host "  ✅ Client secret created (length: $($secret.secretText.Length) chars)" -ForegroundColor Green
-    Write-Host "`n  🔑 CLIENT SECRET (copy this now):" -ForegroundColor Yellow
+    Write-Host "  [OK] Client secret created (length: $($secret.secretText.Length) chars)" -ForegroundColor Green
+    Write-Host "`n  [KEY] CLIENT SECRET (copy this now):" -ForegroundColor Yellow
     Write-Host "  $($secret.secretText)" -ForegroundColor White
     Write-Host ""
     
@@ -307,7 +307,7 @@ function New-AgentIdentityBlueprint {
             
             if ($testResponse.access_token) {
                 $secretValid = $true
-                Write-Host "  ✅ Client secret verified and working!" -ForegroundColor Green
+                Write-Host "  [OK] Client secret verified and working!" -ForegroundColor Green
             }
         }
         catch {
@@ -317,12 +317,12 @@ function New-AgentIdentityBlueprint {
                 Start-Sleep -Seconds 3
             }
             else {
-                Write-Warning "  ⚠️  Secret verification failed after $maxRetries attempts. Proceeding anyway..."
+                Write-Warning "  [WARN]  Secret verification failed after $maxRetries attempts. Proceeding anyway..."
             }
         }
     }
     
-    Write-Host "  ⚠️  SAVE THIS SECRET - you won't see it again!" -ForegroundColor Yellow
+    Write-Host "  [WARN]  SAVE THIS SECRET - you won't see it again!" -ForegroundColor Yellow
     
     return @{
         BlueprintName     = $BlueprintName
@@ -383,8 +383,8 @@ function New-AgentIdentity {
     }
     
     # Get blueprint token for agent creation
-    Write-Host "  🔑 Using Blueprint App ID: $BlueprintAppId" -ForegroundColor Gray
-    Write-Host "  🔑 Secret length: $($ClientSecret.Length) characters" -ForegroundColor Gray
+    Write-Host "  [KEY] Using Blueprint App ID: $BlueprintAppId" -ForegroundColor Gray
+    Write-Host "  [KEY] Secret length: $($ClientSecret.Length) characters" -ForegroundColor Gray
     
     $tokenBody = @{
         client_id     = $BlueprintAppId
@@ -400,10 +400,10 @@ function New-AgentIdentity {
             -Body $tokenBody
         
         $blueprintToken = $tokenResponse.access_token
-        Write-Host "  ✅ Got blueprint token for agent creation" -ForegroundColor Green
+        Write-Host "  [OK] Got blueprint token for agent creation" -ForegroundColor Green
     }
     catch {
-        Write-Error "  ❌ Failed to get blueprint token. This usually means:"
+        Write-Error "  [ERROR] Failed to get blueprint token. This usually means:"
         Write-Error "     - The client secret is invalid or expired"
         Write-Error "     - The blueprint application was deleted"
         Write-Error "     - Blueprint App ID: $BlueprintAppId"
@@ -415,12 +415,12 @@ function New-AgentIdentity {
     try {
         $tokenPayload = Get-DecodedJwtToken -Token $blueprintToken | ConvertFrom-Json
         if ($tokenPayload.roles -notcontains "AgentIdentity.CreateAsManager") {
-            Write-Warning "  ⚠️  Token doesn't have AgentIdentity.CreateAsManager role. Waiting for permissions to propagate..."
+            Write-Warning "  [WARN]  Token doesn't have AgentIdentity.CreateAsManager role. Waiting for permissions to propagate..."
             Start-Sleep -Seconds 10
         }
     }
     catch {
-        Write-Warning "  ⚠️  Could not decode token, proceeding anyway..."
+        Write-Warning "  [WARN]  Could not decode token, proceeding anyway..."
     }
     
     # Create agent identity
@@ -439,7 +439,7 @@ function New-AgentIdentity {
     } `
         -Body ($agentIdentityBody | ConvertTo-Json)
     
-    Write-Host "  ✅ Agent Identity created!" -ForegroundColor Green
+    Write-Host "  [OK] Agent Identity created!" -ForegroundColor Green
     Write-Host "  App ID: $($agentIdentity.appId)" -ForegroundColor Gray
     Write-Host "  Service Principal ID: $($agentIdentity.id)" -ForegroundColor Gray
     
@@ -508,7 +508,7 @@ function Get-AgentIdentityToken {
         -Body $t1Body
     
     $blueprintToken = $t1Response.access_token
-    Write-Host "  ✅ Got T1 token (Blueprint impersonation)" -ForegroundColor Green
+    Write-Host "  [OK] Got T1 token (Blueprint impersonation)" -ForegroundColor Green
     
     if ($ShowClaims) {
         Write-Host "  T1 Claims:" -ForegroundColor Gray
@@ -531,7 +531,7 @@ function Get-AgentIdentityToken {
         -Body $t2Body
     
     $agentToken = $t2Response.access_token
-    Write-Host "  ✅ Got T2 token (Agent identity)" -ForegroundColor Green
+    Write-Host "  [OK] Got T2 token (Agent identity)" -ForegroundColor Green
     
     if ($ShowClaims) {
         Write-Host "  T2 Claims:" -ForegroundColor Gray
@@ -569,7 +569,7 @@ function Add-AgentIdentityPermissions {
         [string[]]$Permissions = @("User.Read.All")
     )
     
-    Write-Host "🔐 Step 5: Adding Permissions to Agent Identity..." -ForegroundColor Cyan
+    Write-Host "[LOCK] Step 5: Adding Permissions to Agent Identity..." -ForegroundColor Cyan
     
     # Wait for agent service principal to be queryable
     Write-Host "  ⏳ Verifying agent service principal is available..." -ForegroundColor Yellow
@@ -582,7 +582,7 @@ function Add-AgentIdentityPermissions {
             $testSP = Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/servicePrincipals/$AgentIdentitySP" -ErrorAction SilentlyContinue
             if ($testSP) {
                 $spExists = $true
-                Write-Host "  ✅ Agent service principal is ready" -ForegroundColor Green
+                Write-Host "  [OK] Agent service principal is ready" -ForegroundColor Green
             }
         }
         catch {
@@ -595,7 +595,7 @@ function Add-AgentIdentityPermissions {
     }
     
     if (-not $spExists) {
-        Write-Error "  ❌ Agent service principal not found after $maxRetries attempts. ID: $AgentIdentitySP"
+        Write-Error "  [ERROR] Agent service principal not found after $maxRetries attempts. ID: $AgentIdentitySP"
         return
     }
     
@@ -635,7 +635,7 @@ function Add-AgentIdentityPermissions {
     
     foreach ($permission in $Permissions) {
         if (-not $permissionMap.ContainsKey($permission)) {
-            Write-Warning "  ⚠️  Unknown permission: $permission (skipping)"
+            Write-Warning "  [WARN]  Unknown permission: $permission (skipping)"
             continue
         }
         
@@ -652,19 +652,19 @@ function Add-AgentIdentityPermissions {
                 -Uri "https://graph.microsoft.com/v1.0/servicePrincipals/$AgentIdentitySP/appRoleAssignments" `
                 -Body ($permissionBody | ConvertTo-Json) | Out-Null
             
-            Write-Host "  ✅ Added permission: $permission" -ForegroundColor Green
+            Write-Host "  [OK] Added permission: $permission" -ForegroundColor Green
         }
         catch {
             if ($_.Exception.Message -like "*already exists*") {
                 Write-Host "  ℹ️  Permission already exists: $permission" -ForegroundColor Yellow
             }
             else {
-                Write-Error "  ❌ Failed to add $permission : $_"
+                Write-Error "  [ERROR] Failed to add $permission : $_"
             }
         }
     }
     
-    Write-Host "  ⚠️  Remember to get a new token to use these permissions!" -ForegroundColor Yellow
+    Write-Host "  [WARN]  Remember to get a new token to use these permissions!" -ForegroundColor Yellow
 }
 
 #endregion
@@ -694,7 +694,7 @@ function Test-AgentIdentityToken {
             "Content-Type"  = "application/json"
         }
         
-        Write-Host "  ✅ Successfully called Graph API!" -ForegroundColor Green
+        Write-Host "  [OK] Successfully called Graph API!" -ForegroundColor Green
         Write-Host "  Retrieved $($response.value.Count) users:`n" -ForegroundColor Gray
         
         # Display users in a formatted table
@@ -714,11 +714,11 @@ function Test-AgentIdentityToken {
         return $true
     }
     catch {
-        Write-Host "  ❌ Failed to call Graph API" -ForegroundColor Red
+        Write-Host "  [ERROR] Failed to call Graph API" -ForegroundColor Red
         Write-Host "  Error: $_" -ForegroundColor Red
         
         # Show token claims to help diagnose
-        Write-Host "`n  📋 Token claims (to verify permissions):" -ForegroundColor Yellow
+        Write-Host "`n  [INFO] Token claims (to verify permissions):" -ForegroundColor Yellow
         try {
             $claims = Get-DecodedJwtToken -Token $AccessToken | ConvertFrom-Json
             Write-Host "  - Audience: $($claims.aud)" -ForegroundColor Gray
@@ -832,7 +832,7 @@ function Start-EntraAgentIDWorkflow {
         Start-Sleep -Seconds 3
         
         # Step 4: Get Initial Token (before permissions)
-        Write-Host "`n📊 Getting initial token (before permissions)..." -ForegroundColor Cyan
+        Write-Host "`n[INFO] Getting initial token (before permissions)..." -ForegroundColor Cyan
         $tokens1 = Get-AgentIdentityToken `
             -BlueprintAppId $blueprint.BlueprintAppId `
             -ClientSecret $blueprint.ClientSecret `
@@ -866,10 +866,10 @@ function Start-EntraAgentIDWorkflow {
         
         # Summary
         Write-Host "`n╔══════════════════════════════════════════════════════════╗" -ForegroundColor Green
-        Write-Host "║  ✅ Workflow Completed Successfully!                     ║" -ForegroundColor Green
+        Write-Host "║  [OK] Workflow Completed Successfully!                     ║" -ForegroundColor Green
         Write-Host "╚══════════════════════════════════════════════════════════╝`n" -ForegroundColor Green
         
-        Write-Host "📋 Summary:" -ForegroundColor Cyan
+        Write-Host "[INFO] Summary:" -ForegroundColor Cyan
         Write-Host "  Tenant ID:                $($connection.TenantId)" -ForegroundColor Gray
         Write-Host "  Blueprint Name:           $($blueprint.BlueprintName)" -ForegroundColor Gray
         Write-Host "  Blueprint App ID:         $($blueprint.BlueprintAppId)" -ForegroundColor Gray
@@ -878,7 +878,7 @@ function Start-EntraAgentIDWorkflow {
         Write-Host "  Agent Service Principal:  $($agent.AgentIdentitySP)" -ForegroundColor Gray
         Write-Host "  Permissions Added:        $($Permissions -join ', ')" -ForegroundColor Gray
         if (-not $SkipTest) {
-            $testStatus = if ($testResult) { "✅ PASSED" } else { "⚠️  FAILED (permissions may need time to propagate)" }
+            $testStatus = if ($testResult) { "[OK] PASSED" } else { "[WARN]  FAILED (permissions may need time to propagate)" }
             Write-Host "  API Test Result:          $testStatus" -ForegroundColor $(if ($testResult) { "Green" } else { "Yellow" })
             
             if (-not $testResult) {
@@ -902,7 +902,7 @@ function Start-EntraAgentIDWorkflow {
     }
     catch {
         Write-Host "`n╔══════════════════════════════════════════════════════════╗" -ForegroundColor Red
-        Write-Host "║  ❌ Workflow Failed                                      ║" -ForegroundColor Red
+        Write-Host "║  [ERROR] Workflow Failed                                      ║" -ForegroundColor Red
         Write-Host "╚══════════════════════════════════════════════════════════╝`n" -ForegroundColor Red
         Write-Error "Error: $_"
         throw
@@ -930,7 +930,7 @@ function Get-BlueprintList {
     .SYNOPSIS
     Lists all blueprints in the tenant.
     #>
-    Write-Host "📋 Blueprints:" -ForegroundColor Cyan
+    Write-Host "[INFO] Blueprints:" -ForegroundColor Cyan
     $blueprints = Invoke-MgGraphRequest -Method GET `
         -Uri "https://graph.microsoft.com/beta/applications/graph.agentIdentityBlueprint"
     
@@ -940,6 +940,6 @@ function Get-BlueprintList {
 #endregion
 
 # Script loaded message
-Write-Host "`n✅ Entra Agent ID Functions loaded!" -ForegroundColor Green
+Write-Host "`n[OK] Entra Agent ID Functions loaded!" -ForegroundColor Green
 Write-Host "Run: Start-EntraAgentIDWorkflow -TenantId '<your-tenant-id>'" -ForegroundColor Yellow
 Write-Host "Or:  Start-EntraAgentIDWorkflow  (uses current Azure context)`n" -ForegroundColor Yellow
