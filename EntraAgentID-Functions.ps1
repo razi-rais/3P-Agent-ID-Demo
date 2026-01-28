@@ -45,7 +45,7 @@ function Connect-EntraAgentIDEnvironment {
     Connects to Azure and Microsoft Graph with required permissions.
     
     .PARAMETER TenantId
-    The Azure AD tenant ID. If not provided, will attempt to get from Azure CLI.
+    The Entra tenant ID. If not provided, will attempt to get from Azure CLI.
     #>
     param(
         [Parameter(Mandatory = $false)]
@@ -114,7 +114,7 @@ function Connect-EntraAgentIDEnvironment {
     # Connect to Microsoft Graph (or reconnect with new permissions)
     if ($needsReconnect) {
         Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
-        Connect-MgGraph -Scopes $requiredScopes -TenantId $TenantId
+        Connect-MgGraph -Scopes $requiredScopes -TenantId $TenantId -UseDeviceCode
     }
      
     
@@ -138,7 +138,7 @@ function New-AgentIdentityBlueprint {
     The display name for the blueprint. If not provided, auto-generates with timestamp.
     
     .PARAMETER TenantId
-    The Azure AD tenant ID.
+    The Entra tenant ID.
     #>
     param(
         [Parameter(Mandatory = $false)]
@@ -283,7 +283,7 @@ function New-AgentIdentity {
     The client secret of the blueprint.
     
     .PARAMETER TenantId
-    The Azure AD tenant ID.
+    The Entra tenant ID.
     
     .PARAMETER UserId
     The user ID to set as sponsor.
@@ -399,7 +399,7 @@ function Get-AgentIdentityToken {
     The App ID of the agent identity.
     
     .PARAMETER TenantId
-    The Azure AD tenant ID.
+    The Entra tenant ID.
     
     .PARAMETER ShowClaims
     If specified, decodes and displays token claims.
@@ -691,7 +691,7 @@ function Start-EntraAgentIDWorkflow {
     7. Test the agent token
     
     .PARAMETER TenantId
-    The Azure AD tenant ID. If not provided, uses current context.
+    The Entra tenant ID. If not provided, uses current context.
     
     .PARAMETER BlueprintName
     Custom blueprint name. If not provided, auto-generates with timestamp.
@@ -775,7 +775,7 @@ function Start-EntraAgentIDWorkflow {
             -AgentIdentitySP $agent.AgentIdentitySP `
             -Permissions $Permissions
         Write-Host "  ⏳ Waiting for permissions to propagate (15 seconds)..." -ForegroundColor Gray
-        Write-Host "     Note: Permission propagation to new tokens can take 5-10 minutes in Azure AD" -ForegroundColor Yellow
+        Write-Host "     Note: Permission propagation to new tokens can take 5-10 minutes in Entra" -ForegroundColor Yellow
         Start-Sleep -Seconds 15
         
         # Step 6: Get New Token (with permissions)
