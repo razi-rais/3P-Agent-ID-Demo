@@ -1,5 +1,7 @@
 # Lab Guide: Testing Microsoft Entra Agent Identity with Sidecar
 
+> **📚 Learning Path:** This guide covers the **fundamentals** of Agent Identity tokens using simple PowerShell commands. Once you understand the basics, check out the [LLM Agent Demo](./llm-agent/README.md) for a complete end-to-end example with a chat UI, real weather API, and visual token flow.
+
 ## What This Lab Does
 
 **Simple Scenario:** You have an AI agent that needs to read user data from your Entra tenant. This lab shows you how to use the Microsoft Entra sidecar to securely get an Agent Identity token, then use that token to call Microsoft Graph API and retrieve users. The sidecar manages all the credentials - your application just requests tokens.
@@ -1213,6 +1215,26 @@ The LLM (Ollama) is optional. Without it, the agent will still:
 To run without Ollama (faster startup):
 ```powershell
 docker-compose up -d sidecar weather-api llm-agent
+```
+
+---
+
+## Next Steps
+
+Now that you understand the fundamentals of Agent Identity tokens, try the **complete end-to-end demo**:
+
+👉 **[LLM Agent Demo](./llm-agent/README.md)** - A visual demonstration featuring:
+- 🖥️ **Chat UI** - Interactive web interface to ask weather questions
+- 🔍 **Token Flow Debug Panel** - Watch the Agent Identity token flow in real-time
+- 🌤️ **Real Weather API** - Calls Open-Meteo for actual weather data
+- 🔐 **Token Validation** - API validates JWT before returning data
+- 📊 **JWT Claims Display** - See the decoded token claims (appid, oid, tid, roles)
+
+```powershell
+# Quick start the full demo
+cd sidecar
+docker-compose up -d
+Start-Process "http://localhost:3000"
 ```
 
 ---
