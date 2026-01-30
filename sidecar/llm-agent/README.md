@@ -139,22 +139,6 @@ docker-compose up -d
 Start-Process "http://localhost:3000"
 ```
 
-## Stop & Cleanup
-
-```powershell
-# Stop all containers (keeps images and volumes)
-docker-compose down
-
-# Stop and remove volumes (clears Ollama model cache)
-docker-compose down -v
-
-# Stop, remove volumes, AND remove images (full cleanup)
-docker-compose down -v --rmi all
-
-# Remove just the Ollama model cache (if needed)
-docker volume rm sidecar_ollama_data
-```
-
 ## Screenshots
 
 ### 1. Initial UI - Ready for Demo
@@ -279,6 +263,22 @@ TENANT_ID=your-tenant-id
 BLUEPRINT_APP_ID=your-blueprint-app-id
 BLUEPRINT_CLIENT_SECRET=your-secret
 AGENT_CLIENT_ID=your-agent-app-id
+```
+
+## Stop & Cleanup
+
+```powershell
+# Stop all containers (keeps images and volumes)
+docker-compose down
+
+# Stop and remove volumes (clears Ollama model cache)
+docker-compose down -v
+
+# Stop, remove volumes, AND remove images (full cleanup)
+docker-compose down -v --rmi all
+
+# Remove just the Ollama model cache (if needed)
+docker volume rm sidecar_ollama_data
 ```
 
 ## Files
