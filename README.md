@@ -16,6 +16,17 @@ This lab guide walks you through the complete workflow for Microsoft Entra Agent
 
 ---
 
+## 📚 Additional Resources
+
+Once you've completed the setup, explore these hands-on demos:
+
+| Guide | Description | Best For |
+|-------|-------------|----------|
+| **[Sidecar Guide](./sidecar/SIDECAR-GUIDE.md)** | Test Agent Identity tokens with simple PowerShell commands using the Microsoft Entra SDK sidecar | Learning the fundamentals |
+| **[Thrid-party Agent Demo](./sidecar/llm-agent/README.md)** | Complete visual demo with chat UI, real weather API, and token flow debug panel | End-to-end demonstration |
+
+---
+
 ## What is Entra Agent ID?
 
 [Microsoft Entra Agent ID](https://learn.microsoft.com/en-us/entra/agent-id/identity-platform/) is a feature in Microsoft Entra that provides secure authentication for AI agents. Key benefits:

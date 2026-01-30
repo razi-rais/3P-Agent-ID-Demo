@@ -2,6 +2,8 @@
 
 A visual demonstration of how AI agents use **Microsoft Entra Agent Identity** tokens to securely call APIs.
 
+> **📚 Prerequisites:** New to Agent Identity? Start with the [Sidecar Guide](../SIDECAR-GUIDE.md) to understand the fundamentals using simple PowerShell commands. This demo builds on those concepts with a complete end-to-end example.
+
 ---
 
 ## High-Level Overview
