@@ -29,6 +29,60 @@ services:
     networks:
       - agent-network
 
+  # Weather API - Validates Agent Identity tokens
+  weather-api:
+    build: ./weather-api
+    container_name: weather-api
+    ports:
+      - "8080:8080"
+    networks:
+      - agent-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # LLM Agent with Chat UI
+  llm-agent:
+    build: ./llm-agent
+    container_name: llm-agent
+    ports:
+      - "3000:3000"
+    environment:
+      - SIDECAR_URL=http://sidecar:5000
+      - WEATHER_API_URL=http://weather-api:8080
+      - AGENT_APP_ID=${AGENT_CLIENT_ID}
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=qwen2.5:1.5b
+    depends_on:
+      - sidecar
+      - weather-api
+    networks:
+      - agent-network
+
+  # Ollama LLM (optional - for natural language responses)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - agent-network
+    # Uncomment below for GPU support
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
 networks:
   agent-network:
     driver: bridge
+
+volumes:
+  ollama-data:

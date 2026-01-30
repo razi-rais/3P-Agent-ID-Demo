@@ -1,0 +1,2 @@
+# Sidecar folder - ignore local .env file
+.env

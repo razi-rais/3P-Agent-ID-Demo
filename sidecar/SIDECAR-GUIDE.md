@@ -1153,4 +1153,69 @@ $response.content | ConvertFrom-Json
 
 ---
 
+## Interactive Demo: LLM Weather Agent
+
+The docker-compose includes an interactive demo with a chat UI that shows Agent Identity in action.
+
+### What's Included
+
+| Service | Port | Description |
+|---------|------|-------------|
+| Sidecar | 5001 | Microsoft Entra Agent ID sidecar |
+| Weather API | 8080 | Mock weather API that validates Agent ID tokens |
+| LLM Agent | 3000 | Chat UI with weather agent |
+| Ollama | 11434 | Local LLM for natural responses (optional) |
+
+### Start the Full Demo
+
+```powershell
+# Make sure .env is configured
+cd sidecar
+docker-compose up -d
+
+# Open the chat UI
+Start-Process "http://localhost:3000"
+```
+
+### How It Works
+
+1. **You ask:** "What's the weather in Seattle?"
+2. **LLM Agent** calls Sidecar to get Agent Identity token
+3. **Sidecar** performs T1/T2 exchange with Entra ID
+4. **LLM Agent** calls Weather API with the token
+5. **Weather API** validates the Agent Identity token
+6. **Response** is displayed with debug info showing the token flow
+
+### Architecture
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Chat UI       │───▶│   Sidecar       │───▶│  Microsoft      │
+│  (Port 3000)    │    │  (Port 5001)    │    │  Entra ID       │
+└────────┬────────┘    └─────────────────┘    └─────────────────┘
+         │                                            │
+         │ Agent Identity Token (T2)                  │
+         ▼                                            ▼
+┌─────────────────┐                          ┌─────────────────┐
+│  Weather API    │◀─────────────────────────│  Token (T2)     │
+│  (Port 8080)    │   Validates token        └─────────────────┘
+└─────────────────┘
+```
+
+### Demo Without Ollama
+
+The LLM (Ollama) is optional. Without it, the agent will still:
+- Get tokens from the sidecar
+- Call the Weather API
+- Display formatted weather data
+- Show the complete debug flow
+
+To run without Ollama (faster startup):
+```powershell
+docker-compose up -d sidecar weather-api llm-agent
+```
+
+---
+
 *End of Lab Guide*
+
