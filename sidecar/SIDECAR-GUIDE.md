@@ -47,8 +47,6 @@ Traditional approaches require storing secrets in your app code or need a human 
 - **Granular permissions per agent** - Each agent gets only what it needs
 - **No user login required** - Agents operate autonomously
 
-**Example:** A company has 3 AI agents: EmailBot (Mail.Read), CalendarBot (Calendar.Read), and DataBot (User.Read.All). Each agent gets its own identity and specific permissions. This lab simulates DataBot.
-
 ---
 
 ## What You'll Learn
