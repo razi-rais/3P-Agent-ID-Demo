@@ -6,7 +6,16 @@
 
 **Simple Scenario:** You have an AI agent that needs to read user data from your Entra tenant. This lab shows you how to use the Microsoft Entra sidecar to securely get an Agent Identity token, then use that token to call Microsoft Graph API and retrieve users. The sidecar manages all the credentials - your application just requests tokens.
 
-**Prerequisites:** You've already created a Blueprint and Agent Identity using the PowerShell workflow in the main folder.
+## ⚠️ Prerequisites
+
+Before starting this guide, you **must** complete the setup in the [Main README](../README.md):
+
+1. ✅ Create a Blueprint application
+2. ✅ Create a Blueprint service principal  
+3. ✅ Create an Agent Identity
+4. ✅ Assign permissions to your Agent
+
+**👉 [Complete the Main README setup first](../README.md)** - This guide assumes you have a working Blueprint and Agent Identity.
 
 **What you'll do:**
 1. Deploy a sidecar container and configure it with your Blueprint credentials
@@ -63,7 +72,7 @@ This lab demonstrates how to use the **Microsoft Entra SDK for Agent ID sidecar*
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         COMPLETE ARCHITECTURE FLOW                               │
+│                         COMPLETE ARCHITECTURE FLOW                              │
 └─────────────────────────────────────────────────────────────────────────────────┘
 
 PATTERN A: Get Token Only (Step 1 & 2)
@@ -83,7 +92,7 @@ PATTERN A: Get Token Only (Step 1 & 2)
     │  Blueprint App ID: 03f6638f...                                  │
     │  Blueprint Secret: ***                                          │
     │                                                                 │
-    │  ② Two-Token Exchange (T1/T2):                                  │
+    │  ② Two-Token Exchange (T1/T2):                                 │
     │     ┌────────────────────────────────────────────────┐          │
     │     │ • Request T1 with Blueprint credentials        │          │
     │     │   (03f6638f... + secret)                       │          │
@@ -99,7 +108,7 @@ PATTERN A: Get Token Only (Step 1 & 2)
     │     │ • Receive Agent Token (T2)                     │          │
     │     └────────────────────────────────────────────────┘          │
     │                                                                 │
-    │  ③ Returns: {"authorizationHeader": "Bearer eyJ..."}            │
+    │  ③ Returns: {"authorizationHeader": "Bearer eyJ..."}           │
     │                                                                 │
     └──────────┬──────────────────────────────────────────────────────┘
                │
@@ -146,7 +155,7 @@ PATTERN B: Call Downstream API Directly (Step 4)
     │  Blueprint App ID: 03f6638f...                                  │
     │  Blueprint Secret: ***                                          │
     │                                                                 │
-    │  ② Two-Token Exchange (T1/T2):                                  │
+    │  ② Two-Token Exchange (T1/T2):                                 │
     │     ┌────────────────────────────────────────────────┐          │
     │     │ • Request T1 with Blueprint credentials        │          │
     │     │   (03f6638f... + secret)                       │          │
@@ -161,7 +170,7 @@ PATTERN B: Call Downstream API Directly (Step 4)
     │     │ • Receive Agent Token (T2)                     │          │
     │     └────────────────────────────────────────────────┘          │
     │                                                                 │
-    │  ③ Call Graph API with T2:                                      │
+    │  ③ Call Graph API with T2:                                     │
     │     ┌────────────────────────────────────────────────┐          │
     │     │ GET https://graph.microsoft.com/v1.0/users     │          │
     │     │ Authorization: Bearer eyJ... (T2)              │          │
@@ -172,7 +181,7 @@ PATTERN B: Call Downstream API Directly (Step 4)
     │     │ • Returns user data                            │          │
     │     └────────────────────────────────────────────────┘          │
     │                                                                 │
-    │  ④ Wraps response:                                              │
+    │  ④ Wraps response:                                             │
     │     {"statusCode":200, "content":"{...users...}"}               │
     │                                                                 │
     └──────────┬──────────────────────────────────────────────────────┘
