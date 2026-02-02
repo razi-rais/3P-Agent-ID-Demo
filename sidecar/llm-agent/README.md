@@ -12,7 +12,7 @@ A visual demonstration of how AI agents use **Microsoft Entra Agent Identity** t
                                     ┌─────────────────┐
                                     │   Microsoft     │
                                     │   Entra ID      │
-                                    │   (Azure AD)    │
+                                    │                 │
                                     └────────▲────────┘
                                              │
                                       2. Get Agent ID
