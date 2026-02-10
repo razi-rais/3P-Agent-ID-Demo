@@ -110,14 +110,7 @@ BEDROCK_MODEL_ID=anthropic.claude-3-5-sonnet-20241022-v2:0
 | **⚡ Direct Mode** | Skips LLM, calls weather tool directly. Fast demo of Agent Identity token flow. |
 | **☁️ Bedrock Mode** | AWS Bedrock LLM decides when to call tools. Demonstrates agentic behavior. |
 
-## E2E Flow: Entra Agent ID with AWS Bedrock Agent
-
-
-```mermaid
-flowchart TB
-
-
-### Sequence Diagram (Detailed Flow)
+## Sequence Diagram (Detailed Flow)
 
 ![Sequence Diagram](docs/images/sequence-diagram.png)
 
