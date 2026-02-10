@@ -169,7 +169,7 @@ sequenceDiagram
                            │
                            ▼
                 ┌─────────────────────┐            ┌─────────────────────┐
-                │  3. ENTRA SDK       │───────────▶│ Microsoft Entra ID  │
+                │  3. Side Car SDK    │───────────▶│ Microsoft Entra ID  │
                 │  for Agent ID       │  Request   │ (External Service)  │
                 │  (T1 → T2)          │◀───────────│ Token Exchange      │
                 └──────────┬──────────┘  Token Back└─────────────────────┘
