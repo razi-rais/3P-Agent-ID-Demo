@@ -1,5 +1,13 @@
 # Environment files with secrets
 .env
+*.env
+
+# Azure credentials and secrets
+*.secret
+*.pfx
+*.pem
+*.csv
+rootkey.csv
 
 # Azure credentials and secrets
 *.secret

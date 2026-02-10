@@ -1,0 +1,146 @@
+direction: right
+
+# User Browser (person icon top left)
+user: User Browser {
+  shape: person
+  style.fill: "#CBD5E0"
+  style.stroke: "#718096"
+  style.stroke-width: 2
+}
+
+# Docker Network - large blue container on the right
+docker: Docker Network\n(agent-network-aws) {
+  style.fill: "#2C5282"
+  style.stroke: "#4299E1"
+  style.stroke-width: 4
+  style.font-color: "#E6FFFA"
+  
+  # LLM Agent Container inside Docker
+  llm_container: LLM Agent Container {
+    style.fill: "#E2E8F0"
+    style.stroke: "#4A5568"
+    style.stroke-width: 2
+    style.font-color: "#1A202C"
+    
+    flask_app: "Flask App\n(Port 3001)" {
+      style.fill: "#2D3748"
+      style.stroke: "#4A5568"
+      style.font-color: "#F7FAFC"
+    }
+    
+    weather_tool: "Weather Tool" {
+      style.fill: "#2D3748"
+      style.stroke: "#4A5568"
+      style.font-color: "#F7FAFC"
+    }
+    
+    langchain: "LangChain + LangGraph" {
+      style.fill: "#2D3748"
+      style.stroke: "#4A5568"
+      style.font-color: "#F7FAFC"
+    }
+  }
+  
+  # Entra SDK Container inside Docker
+  sidecar_container: Entra SDK for Agent ID\n(sidecar) {
+    style.fill: "#E2E8F0"
+    style.stroke: "#4A5568"
+    style.stroke-width: 2
+    style.font-color: "#1A202C"
+    
+    token_exchange: "token-exchange\n(Port 5001)" {
+      style.fill: "#2D3748"
+      style.stroke: "#4A5568"
+      style.font-color: "#F7FAFC"
+    }
+    
+    blueprint: "Blueprint App ID" {
+      style.fill: "#2D3748"
+      style.stroke: "#4A5568"
+      style.font-color: "#F7FAFC"
+    }
+  }
+  
+  # Weather API Container inside Docker
+  weather_container: Weather API Container {
+    style.fill: "#E2E8F0"
+    style.stroke: "#4A5568"
+    style.stroke-width: 2
+    style.font-color: "#1A202C"
+    
+    flask_api: "Flask API\n(Port 8080)" {
+      style.fill: "#2D3748"
+      style.stroke: "#4A5568"
+      style.font-color: "#F7FAFC"
+    }
+    
+    jwt_validation: "JWT Validation" {
+      style.fill: "#2D3748"
+      style.stroke: "#4A5568"
+      style.font-color: "#F7FAFC"
+    }
+  }
+}
+
+# External Services - large red container at bottom
+external: External Services {
+  style.fill: "#742A2A"
+  style.stroke: "#FC8181"
+  style.stroke-width: 4
+  style.font-color: "#FFF5F5"
+  
+  # Microsoft Entra ID inside External
+  entra_service: Microsoft Entra ID {
+    style.fill: "#FFF5F5"
+    style.stroke: "#FC8181"
+    style.stroke-width: 2
+    style.font-color: "#742A2A"
+    
+    token_auth: "Token Authority" {
+      style.fill: "#2D3748"
+      style.stroke: "#4A5568"
+      style.font-color: "#F7FAFC"
+    }
+    
+    t1t2: "T1 → T2 Exchange" {
+      style.fill: "#2D3748"
+      style.stroke: "#4A5568"
+      style.font-color: "#F7FAFC"
+    }
+  }
+  
+  # AWS Bedrock inside External
+  bedrock_service: AWS Bedrock {
+    style.fill: "#FFF5F5"
+    style.stroke: "#FC8181"
+    style.stroke-width: 2
+    style.font-color: "#742A2A"
+    
+    claude: "Claude 3 Haiku" {
+      style.fill: "#2D3748"
+      style.stroke: "#4A5568"
+      style.font-color: "#F7FAFC"
+    }
+    
+    region: "us-east-2" {
+      style.fill: "#2D3748"
+      style.stroke: "#4A5568"
+      style.font-color: "#F7FAFC"
+    }
+  }
+}
+
+# Connections
+user -> docker.llm_container.flask_app: 1. "What's weather in Dallas?"
+docker.llm_container.langchain -> external.bedrock_service.claude: 2. Process with LLM
+docker.llm_container.weather_tool -> docker.sidecar_container.token_exchange: 3. Request Agent Token
+docker.sidecar_container.token_exchange -> external.entra_service.t1t2: 4. Exchange T1 for T2
+external.entra_service.token_auth -> docker.sidecar_container.token_exchange: 5. Return JWT Token
+docker.sidecar_container.token_exchange -> docker.llm_container.weather_tool: 6. Token
+docker.llm_container.weather_tool -> docker.weather_container.flask_api: 7. Call API + JWT
+docker.weather_container.jwt_validation -> docker.weather_container.jwt_validation: 8. Validate Token
+docker.weather_container.flask_api -> docker.weather_container.flask_api: 9. Get Weather Data
+docker.weather_container.flask_api -> docker.llm_container.weather_tool: 10. Weather JSON
+docker.llm_container.langchain -> external.bedrock_service.claude: 11. Parse & Format
+external.bedrock_service.claude -> docker.llm_container.flask_app: 12. Response
+docker.llm_container.flask_app -> user: 13. "Dallas is 72°F"
