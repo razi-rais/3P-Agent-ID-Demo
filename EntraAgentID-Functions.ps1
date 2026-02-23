@@ -105,13 +105,18 @@ function Connect-EntraAgentIDEnvironment {
     }
     
     # Check required scopes
+    # NOTE: Do NOT include Directory.ReadWrite.All - it BLOCKS Agent deletion (Microsoft Known Issue)
     $requiredScopes = @(
         "AgentIdentityBlueprint.AddRemoveCreds.All",
         "AgentIdentityBlueprint.Create",
+        "AgentIdentityBlueprint.DeleteRestore.All",
+        "AgentIdentity.DeleteRestore.All",
         "DelegatedPermissionGrant.ReadWrite.All",
         "Application.Read.All",
         "AgentIdentityBlueprintPrincipal.Create",
         "AppRoleAssignment.ReadWrite.All",
+        "AgentIdUser.ReadWrite.IdentityParentedBy",
+        "Directory.Read.All",
         "User.Read"
     )
     
@@ -125,7 +130,8 @@ function Connect-EntraAgentIDEnvironment {
             Write-Host ""
             Write-Host "  Please reconnect manually with all required scopes:" -ForegroundColor Yellow
             Write-Host "  Disconnect-MgGraph" -ForegroundColor White
-            Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId" -ForegroundColor White
+            $scopesString = ($requiredScopes | ForEach-Object { "'$_'" }) -join ','
+            Write-Host "  Connect-MgGraph -Scopes $scopesString -TenantId $TenantId" -ForegroundColor White
             Write-Host ""
             throw "Missing required Microsoft Graph scopes. Please reconnect with all scopes as shown above."
         } else {
@@ -136,7 +142,8 @@ function Connect-EntraAgentIDEnvironment {
         Write-Host "  ERROR: Not connected to Microsoft Graph" -ForegroundColor Red
         Write-Host ""
         Write-Host "  Please connect manually first:" -ForegroundColor Yellow
-        Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId" -ForegroundColor White
+        $scopesString = ($requiredScopes | ForEach-Object { "'$_'" }) -join ','
+        Write-Host "  Connect-MgGraph -Scopes $scopesString -TenantId $TenantId" -ForegroundColor White
         Write-Host ""
         throw "Not connected to Microsoft Graph. Please connect as shown above."
     }
@@ -160,13 +167,17 @@ function New-AgentIdentityBlueprint {
     Creates an Agent Identity Blueprint with a service principal and client secret.
     
     .PARAMETER BlueprintName
-    The display name for the blueprint. If not provided, auto-generates with timestamp.
+    The display name for the blueprint. REQUIRED - you must provide a meaningful name.
     
     .PARAMETER TenantId
     The Entra tenant ID.
+    
+    .EXAMPLE
+    New-AgentIdentityBlueprint -BlueprintName "Production Blueprint" -TenantId "xxx-xxx"
     #>
     param(
-        [Parameter(Mandatory = $false)]
+        [Parameter(Mandatory = $true, HelpMessage = "Please provide a name for the blueprint (e.g., 'Production Blueprint', 'Weather Agent Blueprint')")]
+        [ValidateNotNullOrEmpty()]
         [string]$BlueprintName,
         
         [Parameter(Mandatory = $true)]
@@ -181,19 +192,15 @@ function New-AgentIdentityBlueprint {
         Write-Host ""
         Write-Host "  ERROR: Microsoft Graph connection lost" -ForegroundColor Red
         Write-Host "  Please reconnect and try again:" -ForegroundColor Yellow
-        Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId" -ForegroundColor White
+        Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','AgentIdUser.ReadWrite.IdentityParentedBy','Directory.Read.All','User.Read' -TenantId $TenantId" -ForegroundColor White
         Write-Host ""
         throw "Not connected to Microsoft Graph"
     }
     
     Write-Host "  Current connection: $($currentContext.Account)" -ForegroundColor Gray
     Write-Host "  Tenant: $($currentContext.TenantId)" -ForegroundColor Gray
+    Write-Host "  Blueprint Name: $BlueprintName" -ForegroundColor Gray
     Write-Host ""
-    
-    # Generate blueprint name with timestamp if not provided
-    if (-not $BlueprintName) {
-        $BlueprintName = "RZ PoC Agent Blueprint " + (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
-    }
     
     # Get current user ID
     try {
@@ -214,7 +221,7 @@ function New-AgentIdentityBlueprint {
             Write-Host ""
             Write-Host "  Please disconnect and reconnect:" -ForegroundColor Cyan
             Write-Host "  Disconnect-MgGraph" -ForegroundColor White
-            Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId" -ForegroundColor White
+            Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','AgentIdUser.ReadWrite.IdentityParentedBy','Directory.Read.All','User.Read' -TenantId $TenantId" -ForegroundColor White
             Write-Host ""
         } else {
             Write-Host "  This may indicate:" -ForegroundColor Yellow
@@ -224,7 +231,7 @@ function New-AgentIdentityBlueprint {
             Write-Host ""
             Write-Host "  Try reconnecting:" -ForegroundColor Cyan
             Write-Host "  Disconnect-MgGraph" -ForegroundColor White
-            Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','User.Read' -TenantId $TenantId" -ForegroundColor White
+            Write-Host "  Connect-MgGraph -Scopes 'AgentIdentityBlueprint.AddRemoveCreds.All','AgentIdentityBlueprint.Create','DelegatedPermissionGrant.ReadWrite.All','Application.Read.All','AgentIdentityBlueprintPrincipal.Create','AppRoleAssignment.ReadWrite.All','AgentIdUser.ReadWrite.IdentityParentedBy','Directory.Read.All','User.Read' -TenantId $TenantId" -ForegroundColor White
             Write-Host ""
         }
         throw $_
@@ -393,22 +400,43 @@ function New-AgentIdentity {
         client_secret = $ClientSecret
     }
     
-    try {
-        $tokenResponse = Invoke-RestMethod -Method POST `
-            -Uri "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token" `
-            -ContentType "application/x-www-form-urlencoded" `
-            -Body $tokenBody
-        
-        $blueprintToken = $tokenResponse.access_token
-        Write-Host "  [OK] Got blueprint token for agent creation" -ForegroundColor Green
+    # Retry logic for token acquisition (secret may need time to propagate)
+    $maxRetries = 5
+    $retryCount = 0
+    $blueprintToken = $null
+    
+    while (-not $blueprintToken -and $retryCount -lt $maxRetries) {
+        try {
+            $tokenResponse = Invoke-RestMethod -Method POST `
+                -Uri "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token" `
+                -ContentType "application/x-www-form-urlencoded" `
+                -Body $tokenBody `
+                -ErrorAction Stop
+            
+            $blueprintToken = $tokenResponse.access_token
+            Write-Host "  [OK] Got blueprint token for agent creation" -ForegroundColor Green
+        }
+        catch {
+            $retryCount++
+            $errorResponse = $_.ErrorDetails.Message | ConvertFrom-Json -ErrorAction SilentlyContinue
+            
+            if ($errorResponse.error -eq "invalid_client" -and $retryCount -lt $maxRetries) {
+                Write-Host "  [WAIT] Secret not ready yet, waiting... (attempt $retryCount/$maxRetries)" -ForegroundColor Yellow
+                Start-Sleep -Seconds 3
+            }
+            else {
+                Write-Error "  [ERROR] Failed to get blueprint token. This usually means:"
+                Write-Error "     - The client secret is invalid or expired"
+                Write-Error "     - The blueprint application was deleted"
+                Write-Error "     - Blueprint App ID: $BlueprintAppId"
+                Write-Error "  Error: $($_.ErrorDetails.Message)"
+                throw
+            }
+        }
     }
-    catch {
-        Write-Error "  [ERROR] Failed to get blueprint token. This usually means:"
-        Write-Error "     - The client secret is invalid or expired"
-        Write-Error "     - The blueprint application was deleted"
-        Write-Error "     - Blueprint App ID: $BlueprintAppId"
-        Write-Error "  Error: $_"
-        throw
+    
+    if (-not $blueprintToken) {
+        throw "Failed to acquire blueprint token after $maxRetries retries"
     }
     
     # Verify the token has the right claims
@@ -669,6 +697,203 @@ function Add-AgentIdentityPermissions {
 
 #endregion
 
+#region Step 5b: Create Agent Users
+
+function New-AgentUser {
+    <#
+    .SYNOPSIS
+    Creates an Agent User for the specified agent identity.
+    
+    .PARAMETER AgentIdentityId
+    The App ID (client ID) of the agent identity.
+    
+    .PARAMETER DisplayName
+    Optional display name for the agent user. If not provided, auto-generates with agent name and timestamp.
+    
+    .PARAMETER AgentName
+    The agent identity name (used for auto-generating display name).
+    
+    .EXAMPLE
+    New-AgentUser -AgentIdentityId "12345678-1234-1234-1234-123456789abc" -DisplayName "My Agent User"
+    
+    .EXAMPLE
+    New-AgentUser -AgentIdentityId "12345678-1234-1234-1234-123456789abc" -AgentName "Weather Agent"
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$AgentIdentityId,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$DisplayName,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$AgentName
+    )
+    
+    Write-Host "[USER] Step 5b: Creating Agent User..." -ForegroundColor Cyan
+    
+    # Generate display name if not provided
+    if (-not $DisplayName) {
+        if ($AgentName) {
+            $DisplayName = "$AgentName User " + (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+        } else {
+            $DisplayName = "Agent User " + (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+        }
+    }
+    
+    Write-Host "  Agent Identity ID: $AgentIdentityId" -ForegroundColor Gray
+    Write-Host "  Display Name:      $DisplayName" -ForegroundColor Gray
+    Write-Host ""
+    
+    # Look up the Service Principal Object ID for this Agent Identity App ID
+    # The identityParentId must be the Service Principal Object ID, not the App ID
+    Write-Host "  [INFO] Looking up Service Principal for Agent Identity..." -ForegroundColor Gray
+    
+    # Retry logic to handle Service Principal propagation delay
+    $maxRetries = 5
+    $retryCount = 0
+    $servicePrincipal = $null
+    $servicePrincipalObjectId = $null
+    
+    while (-not $servicePrincipal -and $retryCount -lt $maxRetries) {
+        $retryCount++
+        
+        try {
+            $servicePrincipal = Get-MgServicePrincipal -Filter "appId eq '$AgentIdentityId'" -ErrorAction Stop
+            
+            if ($servicePrincipal) {
+                $servicePrincipalObjectId = $servicePrincipal.Id
+                Write-Host "  [OK] Service Principal found: $servicePrincipalObjectId" -ForegroundColor Green
+                Write-Host ""
+            }
+            else {
+                # Service Principal not found yet
+                if ($retryCount -lt $maxRetries) {
+                    Write-Host "  [WAIT] Service Principal not available yet, waiting... (attempt $retryCount/$maxRetries)" -ForegroundColor Yellow
+                    Start-Sleep -Seconds 3
+                }
+            }
+        }
+        catch {
+            # Error during lookup - likely propagation delay
+            if ($retryCount -lt $maxRetries) {
+                Write-Host "  [WAIT] Service Principal lookup error, retrying... (attempt $retryCount/$maxRetries)" -ForegroundColor Yellow
+                Start-Sleep -Seconds 3
+            }
+        }
+    }
+    
+    # If we exhausted retries without finding the Service Principal
+    if (-not $servicePrincipalObjectId) {
+        Write-Host "  [ERROR] Failed to find Service Principal for Agent Identity after $maxRetries attempts" -ForegroundColor Red
+        Write-Host "  App ID: $AgentIdentityId" -ForegroundColor Red
+        Write-Host "  This may indicate:" -ForegroundColor Yellow
+        Write-Host "    • Service Principal propagation is taking longer than usual (15+ seconds)" -ForegroundColor Yellow
+        Write-Host "    • Agent Identity was not created successfully" -ForegroundColor Yellow
+        Write-Host "    • Insufficient permissions to query Service Principals (need Directory.Read.All)" -ForegroundColor Yellow
+        Write-Host ""
+        throw "Cannot create Agent User: Service Principal not found for App ID: $AgentIdentityId after $maxRetries attempts"
+    }
+    
+    # Create agent user via Graph API
+    # Generate mailNickname and userPrincipalName from display name
+    $mailNickname = $DisplayName -replace '[^a-zA-Z0-9]', ''
+    if ($mailNickname.Length -eq 0) {
+        $mailNickname = "AgentUser" + (Get-Random -Minimum 1000 -Maximum 9999)
+    }
+    
+    # Get tenant domain for UPN
+    try {
+        $org = Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/organization"
+        $verifiedDomain = $org.value[0].verifiedDomains | Where-Object { $_.isDefault -eq $true } | Select-Object -First 1
+        $domain = $verifiedDomain.name
+    }
+    catch {
+        Write-Warning "Could not get verified domain, using onmicrosoft.com"
+        # Fallback - will likely fail, but let's try
+        $domain = "onmicrosoft.com"
+    }
+    
+    $userPrincipalName = "$mailNickname@$domain"
+    
+    $body = @{
+        "@odata.type"     = "microsoft.graph.agentUser"
+        accountEnabled    = $true
+        displayName       = $DisplayName
+        mailNickname      = $mailNickname
+        userPrincipalName = $userPrincipalName
+        identityParentId  = $servicePrincipalObjectId  # USE SERVICE PRINCIPAL OBJECT ID, NOT APP ID
+    }
+    
+    try {
+        $agentUser = Invoke-MgGraphRequest -Method POST `
+            -Uri "https://graph.microsoft.com/beta/users/microsoft.graph.agentUser" `
+            -Body ($body | ConvertTo-Json)
+        
+        Write-Host "  [OK] Agent User created successfully!" -ForegroundColor Green
+        Write-Host "  Agent User ID:          $($agentUser.id)" -ForegroundColor Gray
+        Write-Host "  Display Name:           $($agentUser.displayName)" -ForegroundColor Gray
+        Write-Host "  User Principal Name:    $($agentUser.userPrincipalName)" -ForegroundColor Gray
+        Write-Host ""
+        
+        return @{
+            Id                 = $agentUser.id
+            AgentUserId        = $agentUser.id
+            DisplayName        = $agentUser.displayName
+            UserPrincipalName  = $agentUser.userPrincipalName
+            AgentIdentityId    = $AgentIdentityId
+        }
+    }
+    catch {
+        Write-Host "  [ERROR] Failed to create agent user" -ForegroundColor Red
+        Write-Host "  Error: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host ""
+        
+        if ($_.Exception.Message -like "*Forbidden*" -or $_.Exception.Message -like "*403*") {
+            Write-Host "  This usually means you need the AgentIdUser.ReadWrite.IdentityParentedBy scope." -ForegroundColor Yellow
+            Write-Host "  Reconnect with:" -ForegroundColor Yellow
+            Write-Host "  Disconnect-MgGraph" -ForegroundColor White
+            Write-Host "  Connect-MgGraph -Scopes 'AgentIdUser.ReadWrite.IdentityParentedBy',...other scopes" -ForegroundColor White
+        }
+        elseif ($_.Exception.Message -like "*not found*" -or $_.Exception.Message -like "*BadRequest*") {
+            Write-Host "  The Agent User API endpoint may not be available in your tenant yet." -ForegroundColor Yellow
+            Write-Host "  This is a beta API and may not be rolled out to all tenants." -ForegroundColor Yellow
+        }
+        
+        Write-Host ""
+        throw $_
+    }
+}
+
+function Get-AgentUsersList {
+    <#
+    .SYNOPSIS
+    Lists all agent users in the tenant.
+    
+    .EXAMPLE
+    Get-AgentUsersList
+    #>
+    Write-Host "[USER] Agent Users:" -ForegroundColor Cyan
+    
+    try {
+        # Query users with agentUser type
+        $agentUsers = Invoke-MgGraphRequest -Method GET `
+            -Uri "https://graph.microsoft.com/beta/users?`$filter=userType eq 'AgentUser'"
+        
+        if ($agentUsers.value.Count -eq 0) {
+            Write-Host "  No agent users found" -ForegroundColor Yellow
+        } else {
+            $agentUsers.value | Select-Object displayName, userPrincipalName, id | Format-Table -AutoSize
+        }
+    }
+    catch {
+        Write-Host "  [ERROR] Failed to list agent users: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "  Try using: Get-MgUser -Filter \"userType eq 'AgentUser'\"" -ForegroundColor Yellow
+    }
+}
+
+#endregion
+
 #region Step 6: Test Agent Token
 
 function Test-AgentIdentityToken {
@@ -794,35 +1019,52 @@ function Start-EntraAgentIDWorkflow {
     The Entra tenant ID. If not provided, uses current context.
     
     .PARAMETER BlueprintName
-    Custom blueprint name. If not provided, auto-generates with timestamp.
+    Blueprint name. REQUIRED - you must provide a meaningful name for the blueprint.
     
     .PARAMETER AgentName
-    Custom agent name. If not provided, auto-generates with timestamp.
+    Agent name. REQUIRED - you must provide a meaningful name for the agent identity.
     
     .PARAMETER Permissions
     Array of Graph API permissions to add to the agent identity. Default: @("User.Read.All")
+    
+    .PARAMETER CreateAgentUser
+    If specified, creates an agent user for the agent identity.
+    
+    .PARAMETER AgentUserDisplayName
+    Custom display name for the agent user. If not provided, auto-generates based on agent name.
     
     .PARAMETER SkipTest
     If specified, skips the API test at the end.
     
     .EXAMPLE
-    Start-EntraAgentIDWorkflow -TenantId "9c5d5b12-72f9-422d-9f50-6fba35f988ab"
+    Start-EntraAgentIDWorkflow -BlueprintName "Production Blueprint" -AgentName "Weather Agent"
     
     .EXAMPLE
-    Start-EntraAgentIDWorkflow -Permissions @("User.Read.All", "Directory.Read.All")
+    Start-EntraAgentIDWorkflow -BlueprintName "Dev Blueprint" -AgentName "Weather Agent" -CreateAgentUser
+    
+    .EXAMPLE
+    Start-EntraAgentIDWorkflow -BlueprintName "My Blueprint" -AgentName "My Agent" -Permissions @("User.Read.All", "Directory.Read.All") -CreateAgentUser -AgentUserDisplayName "My Weather Agent User"
     #>
     param(
         [Parameter(Mandatory = $false)]
         [string]$TenantId,
         
-        [Parameter(Mandatory = $false)]
+        [Parameter(Mandatory = $true, HelpMessage = "Please provide a name for the blueprint (e.g., 'Production Blueprint', 'Dev Blueprint')")]
+        [ValidateNotNullOrEmpty()]
         [string]$BlueprintName,
         
-        [Parameter(Mandatory = $false)]
+        [Parameter(Mandatory = $true, HelpMessage = "Please provide a name for the agent identity (e.g., 'Weather Agent', 'Sales Agent')")]
+        [ValidateNotNullOrEmpty()]
         [string]$AgentName,
         
         [Parameter(Mandatory = $false)]
         [string[]]$Permissions = @("User.Read.All"),
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$CreateAgentUser,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$AgentUserDisplayName,
         
         [Parameter(Mandatory = $false)]
         [switch]$SkipTest
@@ -878,6 +1120,21 @@ function Start-EntraAgentIDWorkflow {
         Write-Host "     Note: Permission propagation to new tokens can take 5-10 minutes in Entra" -ForegroundColor Yellow
         Start-Sleep -Seconds 15
         
+        # Step 5b: Create Agent User (optional)
+        $agentUser = $null
+        if ($CreateAgentUser) {
+            Write-Host ""
+            $agentUserParams = @{
+                AgentIdentityId = $agent.AgentIdentityAppId
+                AgentName       = $agent.AgentName
+            }
+            if ($AgentUserDisplayName) {
+                $agentUserParams.DisplayName = $AgentUserDisplayName
+            }
+            $agentUser = New-AgentUser @agentUserParams
+            Start-Sleep -Seconds 2
+        }
+        
         # Step 6: Get New Token (with permissions)
         Write-Host "`n[SYNC] Getting new token with permissions..." -ForegroundColor Cyan
         $tokens2 = Get-AgentIdentityToken `
@@ -907,6 +1164,12 @@ function Start-EntraAgentIDWorkflow {
         Write-Host "  Agent App ID:             $($agent.AgentIdentityAppId)" -ForegroundColor Gray
         Write-Host "  Agent Service Principal:  $($agent.AgentIdentitySP)" -ForegroundColor Gray
         Write-Host "  Permissions Added:        $($Permissions -join ', ')" -ForegroundColor Gray
+        if ($agentUser) {
+            Write-Host "  Agent User Created:       YES" -ForegroundColor Green
+            Write-Host "    - User ID:              $($agentUser.AgentUserId)" -ForegroundColor Gray
+            Write-Host "    - Display Name:         $($agentUser.DisplayName)" -ForegroundColor Gray
+            Write-Host "    - UPN:                  $($agentUser.UserPrincipalName)" -ForegroundColor Gray
+        }
         if (-not $SkipTest) {
             $testStatus = if ($testResult) { "[OK] PASSED" } else { "[WARN]  FAILED (permissions may need time to propagate)" }
             Write-Host "  API Test Result:          $testStatus" -ForegroundColor $(if ($testResult) { "Green" } else { "Yellow" })
@@ -923,12 +1186,18 @@ function Start-EntraAgentIDWorkflow {
         Write-Host ""
         
         # Return all context for further use
-        return @{
+        $result = @{
             Connection = $connection
             Blueprint  = $blueprint
             Agent      = $agent
             Tokens     = $tokens2
         }
+        
+        if ($agentUser) {
+            $result.AgentUser = $agentUser
+        }
+        
+        return $result
     }
     catch {
         Write-Host "`n============================================================" -ForegroundColor Red
@@ -971,5 +1240,18 @@ function Get-BlueprintList {
 
 # Script loaded message
 Write-Host "`n[OK] Entra Agent ID Functions loaded!" -ForegroundColor Green
-Write-Host "Run: Start-EntraAgentIDWorkflow -TenantId '<your-tenant-id>'" -ForegroundColor Yellow
-Write-Host "Or:  Start-EntraAgentIDWorkflow  (uses current Azure context)`n" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "Quick Start:" -ForegroundColor Cyan
+Write-Host "  Start-EntraAgentIDWorkflow -BlueprintName 'My Blueprint' -AgentName 'My Agent'" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "With Agent User:" -ForegroundColor Cyan
+Write-Host "  Start-EntraAgentIDWorkflow -BlueprintName 'My Blueprint' -AgentName 'My Agent' -CreateAgentUser" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "Note: BlueprintName and AgentName are REQUIRED parameters" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "Additional Functions:" -ForegroundColor Cyan
+Write-Host "  New-AgentIdentityBlueprint -BlueprintName '<name>' -TenantId '<tenant-id>'" -ForegroundColor Gray
+Write-Host "  New-AgentUser -AgentIdentityId '<agent-app-id>' -DisplayName 'Agent User Name'" -ForegroundColor Gray
+Write-Host "  Get-AgentUsersList" -ForegroundColor Gray
+Write-Host "  Get-AgentIdentityList" -ForegroundColor Gray
+Write-Host "  Get-BlueprintList`n" -ForegroundColor Gray
