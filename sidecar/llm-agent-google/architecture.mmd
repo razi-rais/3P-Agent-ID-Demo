@@ -1,0 +1,60 @@
+flowchart TB
+    User["👤 USER BROWSER<br/>localhost:3002"]
+    
+    subgraph Docker["🐳 DOCKER NETWORK (agent-network-google)"]
+        direction TB
+        
+        subgraph LLM["💻 LLM AGENT CONTAINER<br/>Port 3002"]
+            Flask["Flask App"]
+            LangChain["LangChain + LangGraph"]
+            Tool["Weather Tool"]
+        end
+        
+        subgraph Sidecar["🔐 ENTRA SDK FOR AGENT ID<br/>(sidecar)<br/>Port 5002"]
+            TokenExchange["token-exchange"]
+            BlueprintID["Blueprint App ID"]
+        end
+        
+        subgraph Weather["🌤️ WEATHER API CONTAINER<br/>Port 8082"]
+            API["Flask API"]
+            Validation["JWT Validation"]
+        end
+    end
+    
+    subgraph External["☁️ EXTERNAL SERVICES"]
+        direction TB
+        
+        subgraph Entra["🔑 MICROSOFT ENTRA ID"]
+            Auth["Token Authority"]
+            Exchange["T1 → T2 Exchange"]
+        end
+        
+        subgraph VertexAI["🤖 GOOGLE VERTEX AI"]
+            Gemini["Gemini 2.0 Flash Lite"]
+            Region["us-central1"]
+        end
+    end
+    
+    User -->|"1. What's weather in Dallas?"| Flask
+    LangChain -.->|"2. Process with LLM"| Gemini
+    Tool -->|"3. Request Agent Token"| TokenExchange
+    TokenExchange -->|"4. Exchange T1 for T2"| Auth
+    Auth -->|"5. Return JWT Token"| TokenExchange
+    TokenExchange -->|"6. Token"| Tool
+    Tool -->|"7. Call API + JWT"| API
+    API -->|"8. Validate Token"| API
+    API -->|"9. Get Weather Data"| API
+    API -->|"10. Weather JSON"| Tool
+    Tool -->|"11. Parse & Format"| Gemini
+    Gemini -->|"12. Response"| Flask
+    Flask -->|"13. Dallas is 72°F"| User
+    
+    classDef external fill:#FFE6E6,stroke:#FF6B6B,stroke-width:3px
+    classDef container fill:#E3F2FD,stroke:#4A90E2,stroke-width:2px
+    classDef user fill:#E8F5E9,stroke:#4CAF50,stroke-width:2px
+    classDef group fill:#2D2D2D,stroke:#666,stroke-width:2px
+    
+    class User user
+    class External,Entra,VertexAI external
+    class LLM,Sidecar,Weather container
+    class Docker,External group
