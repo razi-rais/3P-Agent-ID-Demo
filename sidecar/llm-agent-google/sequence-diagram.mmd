@@ -1,0 +1,31 @@
+sequenceDiagram
+    actor User as User Browser
+    participant Flask as Flask App<br/>(Port 3002)
+    participant LangChain as LangChain +<br/>LangGraph
+    participant Tool as Weather Tool
+    participant VertexAI as Google Vertex AI<br/>Gemini 2.0 Flash Lite
+    participant TokenExchange as Sidecar<br/>(Microsoft Entra Agent SDK)<br/>Port 5002
+    participant EntraID as Microsoft<br/>Entra ID
+    participant WeatherAPI as Weather API<br/>(Port 8082)
+    
+    User->>Flask: 1. "What's weather in Dallas?"
+    Flask->>LangChain: Process query
+    LangChain->>VertexAI: 2. Process with LLM
+    VertexAI->>LangChain: Tool call decision
+    LangChain->>Tool: Execute weather tool
+    
+    Tool->>TokenExchange: 3. Request Agent Token
+    TokenExchange->>EntraID: 4. Exchange T1 for T2
+    EntraID->>TokenExchange: 5. Return JWT Token
+    TokenExchange->>Tool: 6. Token
+    
+    Tool->>WeatherAPI: 7. Call API + JWT
+    WeatherAPI->>WeatherAPI: 8. Validate Token
+    WeatherAPI->>WeatherAPI: 9. Get Weather Data
+    WeatherAPI->>Tool: 10. Weather JSON
+    
+    Tool->>LangChain: Weather data
+    LangChain->>VertexAI: 11. Parse & Format
+    VertexAI->>LangChain: Formatted response
+    LangChain->>Flask: 12. Response
+    Flask->>User: 13. "Dallas is 72°F"
