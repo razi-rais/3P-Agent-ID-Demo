@@ -29,5 +29,8 @@ ollama-data/
 # Logs
 *.log
 
+# AWS Bedrock logs (contain account IDs and ARNs)
+aws-bedrock.json
+
 # Temporary files
 *.tmp
