@@ -70,7 +70,8 @@ Navigate to: **http://localhost:3001**
 The UI provides:
 - **Query input** - Ask natural language questions about weather
 - **Debug panel** - Real-time flow visualization showing each step
-- **Mode toggle** - Switch between Direct and Bedrock agent modes
+- **2×2 Mode Controls** - LLM Mode (Direct/Bedrock) × Token Flow (Autonomous/OBO)
+- **MSAL.js Sign-In** - Interactive Microsoft Entra login for OBO flow
 - **Token details** - View decoded JWT claims and validation
 
 ## AWS Bedrock Agent Logs
@@ -103,12 +104,75 @@ BEDROCK_MODEL_ID=anthropic.claude-3-opus-20240229-v1:0
 BEDROCK_MODEL_ID=anthropic.claude-3-5-sonnet-20241022-v2:0
 ```
 
-## Two Modes
+## Two Dimensions (2×2 Design)
+
+The demo surfaces **two independent toggles** that combine into four modes:
+
+### LLM Mode (Row 1)
 
 | Mode | Description |
 |------|-------------|
-| **⚡ Direct Mode** | Skips LLM, calls weather tool directly. Fast demo of Agent Identity token flow. |
-| **☁️ Bedrock Mode** | AWS Bedrock LLM decides when to call tools. Demonstrates agentic behavior. |
+| **⚡ Direct** | Skips LLM, calls weather tool directly. Fast demo of Agent Identity token flow. |
+| **☁️ Bedrock** | AWS Bedrock Claude decides when to call tools. Demonstrates agentic behavior. |
+
+### Token Flow (Row 2)
+
+| Flow | Description |
+|------|-------------|
+| **🔒 Autonomous** | Agent gets its own token — no user sign-in required. Uses `/AuthorizationHeaderUnauthenticated/graph`. |
+| **👥 OBO (User)** | User signs in via MSAL.js, agent acts on their behalf via OAuth 2.0 OBO. Uses `/AuthorizationHeader/graph`. |
+
+### Combined Matrix
+
+| | 🔒 Autonomous | 👥 OBO |
+|---|---|---|
+| **⚡ Direct** | Tool → Sidecar (no user) → Weather API | Tool → Sidecar (user token) → Weather API |
+| **☁️ Bedrock** | LLM → Tool → Sidecar (no user) → Weather API | LLM → Tool → Sidecar (user token) → Weather API |
+
+## On-Behalf-Of (OBO) Flow
+
+When **OBO** is selected in the Token Flow toggle, the user is prompted to **sign in via MSAL.js** (Microsoft Authentication Library) in the browser. The acquired access token (`Tc`) is sent with each API request so the backend can pass it to the sidecar's authenticated endpoint.
+
+### Autonomous vs. OBO
+
+| | 🔒 Autonomous | 👥 OBO (Delegated) |
+|---|---|---|
+| **Sidecar Endpoint** | `/AuthorizationHeaderUnauthenticated/graph` | `/AuthorizationHeader/graph` |
+| **User Token Required** | ❌ No | ✅ Yes (Bearer Tc via MSAL.js) |
+| **Token Type** | App-only Agent Identity | Delegated Agent Identity |
+| **Use Case** | Background jobs, autonomous agents | User-facing apps, consent-based access |
+| **MSAL.js Sign-In** | Not needed | Interactive popup login |
+
+### OBO Protocol Steps
+
+```
+1. 👤 User authenticates → obtains Tc (user access token)
+      Tc audience must match Blueprint's Client ID
+
+2. 📤 Agent sends Tc + AgentIdentity to sidecar
+      GET /AuthorizationHeader/graph?AgentIdentity={agentAppId}
+      Authorization: Bearer {Tc}
+
+3. 🔄 Sidecar performs OBO exchange:
+      POST /oauth2/v2.0/token
+        client_id=AgentIdentity
+        client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer
+        client_assertion={T1}
+        grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer
+        assertion={Tc}
+        requested_token_use=on_behalf_of
+
+4. 🔑 Entra ID returns delegated T2 token
+
+5. 🌤️ Agent calls Weather API with delegated token
+      Authorization: Bearer {T2}
+```
+
+### OBO Documentation
+
+- [Agent OBO Flow (Protocol)](https://learn.microsoft.com/en-us/entra/agent-id/identity-platform/agent-on-behalf-of-oauth-flow)
+- [Sidecar SDK Configuration](https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/configuration)
+- [Sidecar SDK Endpoints Reference](https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/endpoints)
 
 ## Sequence Diagram (Detailed Flow)
 
