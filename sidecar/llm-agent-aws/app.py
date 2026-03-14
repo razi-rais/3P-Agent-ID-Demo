@@ -90,7 +90,7 @@ def get_agent_token():
     log_debug("2.A TOKEN REQUEST", f"Requesting token for Agent: {AGENT_APP_ID}")
     
     try:
-        url = f"{SIDECAR_URL}/AuthorizationHeaderUnauthenticated/graph-app?AgentIdentity={AGENT_APP_ID}"
+        url = f"{SIDECAR_URL}/AuthorizationHeaderUnauthenticated/graph?AgentIdentity={AGENT_APP_ID}"
         log_debug("2.B REQUEST URL", f"Sidecar URL: {url}")
         
         response = requests.get(url, timeout=30, headers={"Host": "localhost"})
@@ -136,7 +136,7 @@ def get_agent_token_obo(user_token=None):
     log_debug("OBO 2.A TOKEN REQUEST", f"Requesting OBO token for Agent: {AGENT_APP_ID}", {
         "endpoint": "/AuthorizationHeader/graph (authenticated)",
         "flow": "User Token (Tc) → Sidecar → T1 (Blueprint) → OBO Exchange → TR (Delegated Agent)",
-        "vs_autonomous": "/AuthorizationHeaderUnauthenticated/graph-app (no user token needed)",
+        "vs_autonomous": "/AuthorizationHeaderUnauthenticated/graph (no user token needed)",
         "bearer_token_sent": "Tc (user's access token) — sent in Authorization header",
         "why_bearer": "Sidecar needs user's Tc to perform OBO exchange on behalf of that user"
     })
@@ -231,7 +231,7 @@ def get_t1_token_claims():
     In the Autonomous flow, T1 IS the final token (returned by get_agent_token).
     """
     try:
-        url = f"{SIDECAR_URL}/AuthorizationHeaderUnauthenticated/graph-app?AgentIdentity={AGENT_APP_ID}"
+        url = f"{SIDECAR_URL}/AuthorizationHeaderUnauthenticated/graph?AgentIdentity={AGENT_APP_ID}"
         response = requests.get(url, timeout=30, headers={"Host": "localhost"})
         response.raise_for_status()
         result = response.json()
@@ -1066,7 +1066,7 @@ CHAT_UI_TEMPLATE = '''
                     <br>
                     <strong>Token Flow:</strong><br>
                     &#x1F512; <strong>Autonomous</strong> &mdash; Agent gets its own token (no user sign-in)<br>
-                    &nbsp;&nbsp;&nbsp;Endpoint: <code>/AuthorizationHeaderUnauthenticated/graph-app</code><br>
+                    &nbsp;&nbsp;&nbsp;Endpoint: <code>/AuthorizationHeaderUnauthenticated/graph</code><br>
                     &#x1F465; <strong>OBO</strong> &mdash; You sign in, agent acts on your behalf<br>
                     &nbsp;&nbsp;&nbsp;Endpoint: <code>/AuthorizationHeader/graph</code> (with your token)<br>
                     <br>
