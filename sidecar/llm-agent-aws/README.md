@@ -65,7 +65,13 @@ Navigate to: **http://localhost:3001**
 
 ## Demo UI
 
-![Agent UX](docs/images/bedrock-agent-ux.png)
+### Autonomous Mode
+![Agent UX - Autonomous](docs/images/bedrock-agent-ux-ato.png)
+
+### OBO Mode (On-Behalf-Of User)
+![Agent UX - OBO 1](docs/images/bedrock-agent-ux-obo-1.png)
+![Agent UX - OBO 2](docs/images/bedrock-agent-ux-obo-2.png)
+![Agent UX - OBO 3](docs/images/bedrock-agent-ux-obo-3.png)
 
 The UI provides:
 - **Query input** - Ask natural language questions about weather
@@ -174,12 +180,14 @@ When **OBO** is selected in the Token Flow toggle, the user is prompted to **sig
 - [Sidecar SDK Configuration](https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/configuration)
 - [Sidecar SDK Endpoints Reference](https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/endpoints)
 
-## Sequence Diagram (Detailed Flow)
+## Sequence Diagrams (Detailed Flow)
+
+### Autonomous Flow (App-Only)
 
 ![Sequence Diagram](docs/images/sequence-diagram.png)
 
 <details>
-<summary>View Mermaid source code</summary>
+<summary>View Mermaid source code (Autonomous)</summary>
 
 ```mermaid
 sequenceDiagram
@@ -217,7 +225,7 @@ sequenceDiagram
 
 </details>
 
-### 5000-Feet View
+### 5000-Feet View (Autonomous)
 
 ```
                   ┌──────────────────┐
@@ -260,7 +268,129 @@ sequenceDiagram
 3. Tool gets Agent Identity token from Sidecar → Entra ID
 4. Tool calls Weather API with token → validates → gets weather → returns JSON
 5. JSON flows back to Claude → parses and formats answer → user sees result
-``
+
+### OBO Flow (Delegated — On-Behalf-Of User)
+
+![OBO Sequence Diagram](docs/images/sequence-diagram-obo.png)
+
+<details>
+<summary>View Mermaid source code (OBO)</summary>
+
+```mermaid
+sequenceDiagram
+    actor User as User Browser
+    participant MSAL as MSAL.js<br/>(Sign-In)
+    participant EntraLogin as Microsoft<br/>Entra ID<br/>(login.microsoftonline.com)
+    participant Flask as Flask App<br/>(Port 3001)
+    participant LangChain as LangChain +<br/>LangGraph
+    participant Tool as Weather Tool
+    participant Bedrock as AWS Bedrock<br/>Claude 3 Haiku
+    participant Sidecar as Sidecar<br/>(Microsoft Entra Agent SDK)<br/>Port 5001
+    participant EntraID as Microsoft<br/>Entra ID<br/>(Token Exchange)
+    participant WeatherAPI as Weather API<br/>(Port 8080)
+
+    Note over User,EntraLogin: Phase 1 — User Sign-In (MSAL.js)
+    User->>MSAL: 1. Click "Sign In"
+    MSAL->>EntraLogin: 2. Interactive login (popup)
+    EntraLogin->>MSAL: 3. Return Tc (user access token)
+    Note right of MSAL: Tc audience = api://{BlueprintAppId}
+
+    Note over User,WeatherAPI: Phase 2 — Agent Query with OBO
+    User->>Flask: 4. "What's weather in Dallas?" + Bearer Tc
+    Flask->>LangChain: 5. Process query (OBO mode)
+    LangChain->>Bedrock: 6. Send to AWS Bedrock
+    Bedrock->>LangChain: 7. Tool call decision
+    LangChain->>Tool: 8. Execute weather tool
+
+    Note over Tool,EntraID: Phase 3 — OBO Token Exchange (inside Sidecar)
+    Tool->>Sidecar: 9. GET /AuthorizationHeader/graph<br/>Authorization: Bearer Tc<br/>?AgentIdentity={agentAppId}
+    Sidecar->>Sidecar: 10. Validate Tc
+    Sidecar->>EntraID: 11. Acquire T1 (client_credentials)<br/>T1 = Blueprint app-only token
+    EntraID->>Sidecar: 12. Return T1
+    Note right of Sidecar: T1: appid={agentAppId}, idtyp=app<br/>Used as client_assertion in OBO
+    Sidecar->>EntraID: 13. OBO exchange:<br/>assertion=Tc, client_assertion=T1<br/>grant_type=jwt-bearer<br/>requested_token_use=on_behalf_of
+    EntraID->>Sidecar: 14. Return TR (delegated agent token)
+    Note right of Sidecar: TR: appid={agentAppId}, idtyp=user<br/>Acts on behalf of signed-in user
+    Sidecar->>Tool: 15. Authorization: Bearer TR
+
+    Note over Tool,WeatherAPI: Phase 4 — API Call with Delegated Token
+    Tool->>WeatherAPI: 16. GET /weather?city=Dallas<br/>Authorization: Bearer TR
+    WeatherAPI->>WeatherAPI: 17. Validate TR (delegated)
+    WeatherAPI->>WeatherAPI: 18. Get Weather Data
+    WeatherAPI->>Tool: 19. Weather JSON
+
+    Tool->>LangChain: 20. Weather data
+    LangChain->>Bedrock: 21. Parse & Format
+    Bedrock->>LangChain: 22. Formatted response
+    LangChain->>Flask: 23. Response
+    Flask->>User: 24. "Dallas is 72°F"
+```
+
+</details>
+
+### 5000-Feet View (OBO)
+
+```
+          ┌──────────────────────┐
+          │  0. USER SIGNS IN    │
+          │  via MSAL.js popup   │
+          │  → obtains Tc        │
+          │  aud=BlueprintAppId  │
+          └──────────┬───────────┘
+                     │
+                     ▼
+          ┌──────────────────────┐
+          │   1. USER QUERY      │
+          │  "Weather in NY?"    │
+          │  + Bearer Tc         │
+          └──────────┬───────────┘
+                     │
+                     ▼
+          ┌──────────────────────────────┐
+          │   2. LLM AGENT (Bedrock)     │
+          │      Claude 3 Haiku          │
+          └──────────┬───────────────────┘
+                     │
+                     ▼
+          ┌──────────────────────┐         ┌─────────────────────────┐
+          │  3. Sidecar SDK      │         │  Microsoft Entra ID     │
+          │                      │         │  (Token Exchange)       │
+          │  a) Validate Tc      │         │                         │
+          │  b) Acquire T1 ──────│────────▶│  client_credentials     │
+          │     (app-only)  ◀────│─────────│  → T1 (idtyp=app)      │
+          │  c) OBO exchange ────│────────▶│  Tc + T1 → TR           │
+          │     Tc + T1     ◀────│─────────│  → TR (idtyp=user)     │
+          │                      │         │  acts on behalf of user │
+          └──────────┬───────────┘         └─────────────────────────┘
+                     │ TR
+                     ▼
+          ┌──────────────────────┐
+          │  4. WEATHER API      │
+          │  • Validate TR       │
+          │  • TR = delegated    │
+          │    (acts on behalf   │
+          │     of signed-in     │
+          │     user)            │
+          │  • Get Weather Data  │
+          └──────────┬───────────┘
+                     │
+                     ▼
+          ┌──────────────────────────────┐
+          │ 5. LLM PARSES & RESPONDS     │
+          │  Claude formats answer       │
+          └──────────────────────────────┘
+```
+
+**OBO Flow Steps:**
+1. User signs in via MSAL.js → obtains Tc (audience = Blueprint App ID)
+2. User sends query + Bearer Tc to Flask agent
+3. Claude (AWS Bedrock) processes query and calls weather tool
+4. Sidecar handles the 3-step token exchange:
+   - **a)** Validates Tc (user's access token)
+   - **b)** Acquires T1 via client_credentials (`idtyp=app`, `appid=AgentAppId`)
+   - **c)** OBO exchange: Tc (assertion) + T1 (client_assertion) → TR (`idtyp=user`)
+5. Tool calls Weather API with TR → validates → returns weather data
+6. Response flows back through Claude to user
 
 ### Debug Panel Flow (What You See in UI)
 
