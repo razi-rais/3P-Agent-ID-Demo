@@ -1420,6 +1420,11 @@ CHAT_UI_TEMPLATE = '''
             if (e.key === 'Enter') sendMessage();
         });
     </script>
+    <footer style="text-align:center; padding:16px 0 8px; color:#888; font-size:13px;">
+        <a href="https://github.com/razi-rais/3P-Agent-ID-Demo" target="_blank" style="color:#58a6ff; text-decoration:none;">
+            &#128279; View source code on GitHub
+        </a>
+    </footer>
 </body>
 </html>
 '''
