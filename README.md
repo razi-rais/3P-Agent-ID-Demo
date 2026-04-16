@@ -24,6 +24,8 @@ Once you've completed the setup, explore these hands-on demos:
 
 | Guide | Description | Best For |
 |-------|-------------|----------|
+| **[🚀 Quick Reference](./QUICK-REFERENCE.md)** | One-page guide with commands, checklist, and troubleshooting | Quick starts & workshops |
+| **[🤖 AI-Guided Setup](./MASTER-SETUP-PROMPT.md)** | Interactive prompt for AI assistants to build the complete demo by asking questions | First-time users & teams |
 | **[Sidecar Guide](./sidecar/SIDECAR-GUIDE.md)** | Test Agent Identity tokens with simple PowerShell commands using the Microsoft Entra SDK sidecar | Learning the fundamentals |
 | **[Third-party Agent Demo](./sidecar/llm-agent/README.md)** | Complete visual demo with chat UI, real weather API, and token flow debug panel | End-to-end demonstration |
 | **[PowerShell Test Scenarios](./powershell-test-scenario/README.md)** | Comprehensive test scripts for creating multiple agents, agent users, and automated cleanup | Testing and validation |

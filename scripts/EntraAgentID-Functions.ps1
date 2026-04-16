@@ -750,19 +750,19 @@ function New-AgentUser {
     Write-Host "  [INFO] Looking up Service Principal for Agent Identity..." -ForegroundColor Gray
     
     # Retry logic to handle Service Principal propagation delay
-    $maxRetries = 5
+    # Uses Invoke-MgGraphRequest for consistency (Get-MgServicePrincipal can fail on AgentIdentity SPs)
+    $maxRetries = 10
     $retryCount = 0
-    $servicePrincipal = $null
     $servicePrincipalObjectId = $null
     
-    while (-not $servicePrincipal -and $retryCount -lt $maxRetries) {
+    while (-not $servicePrincipalObjectId -and $retryCount -lt $maxRetries) {
         $retryCount++
         
         try {
-            $servicePrincipal = Get-MgServicePrincipal -Filter "appId eq '$AgentIdentityId'" -ErrorAction Stop
+            $spResult = Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/servicePrincipals?`$filter=appId eq '$AgentIdentityId'" -ErrorAction Stop
             
-            if ($servicePrincipal) {
-                $servicePrincipalObjectId = $servicePrincipal.Id
+            if ($spResult.value -and $spResult.value.Count -gt 0) {
+                $servicePrincipalObjectId = $spResult.value[0].id
                 Write-Host "  [OK] Service Principal found: $servicePrincipalObjectId" -ForegroundColor Green
                 Write-Host ""
             }
@@ -770,7 +770,7 @@ function New-AgentUser {
                 # Service Principal not found yet
                 if ($retryCount -lt $maxRetries) {
                     Write-Host "  [WAIT] Service Principal not available yet, waiting... (attempt $retryCount/$maxRetries)" -ForegroundColor Yellow
-                    Start-Sleep -Seconds 3
+                    Start-Sleep -Seconds 5
                 }
             }
         }
@@ -778,7 +778,7 @@ function New-AgentUser {
             # Error during lookup - likely propagation delay
             if ($retryCount -lt $maxRetries) {
                 Write-Host "  [WAIT] Service Principal lookup error, retrying... (attempt $retryCount/$maxRetries)" -ForegroundColor Yellow
-                Start-Sleep -Seconds 3
+                Start-Sleep -Seconds 5
             }
         }
     }

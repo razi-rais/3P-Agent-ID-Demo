@@ -7,6 +7,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import jwt
 import requests
+import random
 from datetime import datetime
 from functools import wraps
 
@@ -221,7 +222,9 @@ def get_forecast():
     """Get 5-day forecast - requires valid Agent Identity token"""
     city = request.args.get('city', 'seattle').lower()
     
-    base_weather = WEATHER_DATA.get(city, {"temp": 55, "condition": "Cloudy", "humidity": 60})
+    # Get current weather as baseline
+    current, error = get_real_weather(city)
+    base_temp = current["temperature"] if current else 55
     
     forecast = []
     conditions = ["Sunny", "Partly Cloudy", "Cloudy", "Rainy", "Windy"]
@@ -229,8 +232,8 @@ def get_forecast():
     for i in range(5):
         forecast.append({
             "day": i + 1,
-            "high": base_weather["temp"] + random.randint(-5, 10),
-            "low": base_weather["temp"] - random.randint(5, 15),
+            "high": base_temp + random.randint(-5, 10),
+            "low": base_temp - random.randint(5, 15),
             "condition": random.choice(conditions),
             "precipitation_chance": random.randint(0, 100)
         })

@@ -1,18 +1,21 @@
 # Environment files with secrets
 .env
 *.env
+!*.env.example
 
-# Azure credentials and secrets
+# Cloud credentials
 *.secret
 *.pfx
 *.pem
 *.csv
 rootkey.csv
+*-key.json
+vertex-ai-key.json
 
-# Azure credentials and secrets
-*.secret
-*.pfx
-*.pem
+# Python
+__pycache__/
+*.pyc
+.venv/
 
 # PowerShell module cache
 *.psm1.cache
@@ -34,3 +37,4 @@ aws-bedrock.json
 
 # Temporary files
 *.tmp
+agent365-samples/

@@ -1,12 +1,10 @@
-version: '3.8'
-
 services:
   # Microsoft Entra SDK for AgentID Sidecar
   sidecar:
     image: mcr.microsoft.com/entra-sdk/auth-sidecar:1.0.0-azurelinux3.0-distroless
-    container_name: agent-id-sidecar-aws
+    container_name: agent-id-sidecar-google
     ports:
-      - "5001:5000"
+      - "5002:5000"
     environment:
       # Microsoft Entra ID Configuration - Use BLUEPRINT App ID here!
       - AzureAd__Instance=https://login.microsoftonline.com/
@@ -27,42 +25,44 @@ services:
       - ASPNETCORE_URLS=http://+:5000
       - AllowedHosts=*
     networks:
-      - agent-network-aws
+      - agent-network-google
 
   # Weather API - Validates Agent Identity tokens
   weather-api:
-    build: ./weather-api
-    container_name: weather-api-aws
+    build: ../weather-api
+    container_name: weather-api-google
     ports:
-      - "8080:8080"
+      - "8082:8080"
     networks:
-      - agent-network-aws
+      - agent-network-google
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 3
 
-  # LLM Agent with AWS Bedrock
-  llm-agent-aws:
-    build: ./llm-agent-aws
-    container_name: llm-agent-aws
+  # LLM Agent with Google Vertex AI
+  llm-agent-google:
+    build: .
+    container_name: llm-agent-google
     ports:
-      - "3001:3000"
+      - "3002:3000"
     environment:
       - SIDECAR_URL=http://sidecar:5000
       - WEATHER_API_URL=http://weather-api:8080
       - AGENT_APP_ID=${AGENT_CLIENT_ID}
-      - AWS_REGION=${AWS_REGION:-us-east-1}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-anthropic.claude-3-sonnet-20240229-v1:0}
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GCP_LOCATION=${GCP_LOCATION:-us-central1}
+      - VERTEXAI_MODEL_ID=${VERTEXAI_MODEL_ID:-gemini-1.0-pro-002}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/vertex-ai-key.json
+    volumes:
+      - ./vertex-ai-key.json:/app/vertex-ai-key.json:ro  # Place your GCP service account key here
     networks:
-      - agent-network-aws
+      - agent-network-google
     depends_on:
       - sidecar
       - weather-api
 
 networks:
-  agent-network-aws:
+  agent-network-google:
     driver: bridge

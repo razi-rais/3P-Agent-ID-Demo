@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Microsoft Entra SDK for AgentID Sidecar
   sidecar:
@@ -31,7 +29,7 @@ services:
 
   # Weather API - Validates Agent Identity tokens
   weather-api:
-    build: ./weather-api
+    build: ../weather-api
     container_name: weather-api
     ports:
       - "8080:8080"
@@ -45,7 +43,7 @@ services:
 
   # LLM Agent with Chat UI
   llm-agent:
-    build: ./llm-agent
+    build: .
     container_name: llm-agent
     ports:
       - "3000:3000"

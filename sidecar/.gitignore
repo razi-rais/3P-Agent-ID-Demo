@@ -1,2 +1,6 @@
 # Sidecar folder - ignore local .env file
 .env
+
+# Google Vertex AI credentials
+vertex-ai-key.json
+*-key.json
