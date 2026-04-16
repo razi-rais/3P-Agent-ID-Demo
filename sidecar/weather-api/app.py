@@ -138,12 +138,19 @@ def validate_token(f):
         token = auth_header.replace('Bearer ', '')
         
         try:
-            # Decode without verification (for demo purposes)
-            # In production, you would verify the signature
+            # ============================================================
+            # ⚠️  DEMO ONLY — signature verification is disabled.
+            # In production, validate the token signature against the
+            # Entra ID JWKS endpoint:
+            #   https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys
+            # ============================================================
             unverified = jwt.decode(token, options={"verify_signature": False})
             
-            # Check for Agent Identity claim
+            # Detect Agent Identity:
+            #   Autonomous tokens have xms_frd = "FederatedAgent"
+            #   OBO tokens have xms_par_app_azp = agent's app ID
             xms_frd = unverified.get('xms_frd', '')
+            xms_par = unverified.get('xms_par_app_azp', '')
             
             # Store token info in request for logging
             request.token_claims = {
@@ -151,7 +158,8 @@ def validate_token(f):
                 "aud": unverified.get('aud', 'unknown'),
                 "roles": unverified.get('roles', []),
                 "xms_frd": xms_frd,
-                "is_agent_identity": xms_frd == "FederatedAgent"
+                "xms_par_app_azp": xms_par,
+                "is_agent_identity": xms_frd == "FederatedAgent" or bool(xms_par)
             }
             
             print(f"[TOKEN VALIDATED] App ID: {request.token_claims['appid']}, Is Agent: {request.token_claims['is_agent_identity']}")
