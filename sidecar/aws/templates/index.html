@@ -272,7 +272,7 @@
             <!-- Two-row mode selector -->
             <div class="controls-group">
                 <div class="control-row">
-                    <div class="control-label">LLM</div>
+                    <div class="control-label">Mode</div>
                     <button class="mode-btn active" data-group="llm" data-mode="direct" onclick="setLlmMode('direct')">
                         &#x26A1; Direct
                         <span class="mode-desc">Skip LLM, call tool</span>
@@ -283,14 +283,14 @@
                     </button>
                 </div>
                 <div class="control-row">
-                    <div class="control-label">Token</div>
+                    <div class="control-label">Identity</div>
                     <button class="mode-btn active" data-group="token" data-mode="autonomous" onclick="setTokenFlow('autonomous')">
                         &#x1F512; Autonomous
-                        <span class="mode-desc">No user sign-in</span>
+                        <span class="mode-desc">Agent acts alone</span>
                     </button>
                     <button class="mode-btn" data-group="token" data-mode="obo" onclick="setTokenFlow('obo')">
-                        &#x1F465; OBO (User)
-                        <span class="mode-desc">Sign in &amp; delegate</span>
+                        &#x1F465; On-Behalf-Of
+                        <span class="mode-desc">Agent acts as user</span>
                     </button>
                 </div>
             </div>

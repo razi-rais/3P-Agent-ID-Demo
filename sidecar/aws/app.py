@@ -128,14 +128,14 @@ def get_agent_token_obo(user_token=None):
       1. User authenticates → obtains Tc (user access token)
       2. Agent presents Tc to sidecar via /AuthorizationHeader (authenticated endpoint)
       3. Sidecar validates Tc, acquires T1 (blueprint token), performs OBO exchange
-      4. Returns delegated agent token (TR) that acts on behalf of the user
+      4. Returns interactive agent token (TR) that acts on behalf of the user
     
     Docs: https://learn.microsoft.com/en-us/entra/agent-id/identity-platform/agent-on-behalf-of-oauth-flow
     SDK:  https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/endpoints
     """
     log_debug("OBO 2.A TOKEN REQUEST", f"Requesting OBO token for Agent: {AGENT_APP_ID}", {
         "endpoint": "/AuthorizationHeader/graph (authenticated)",
-        "flow": "User Token (Tc) → Sidecar → T1 (Blueprint) → OBO Exchange → TR (Delegated Agent)",
+        "flow": "User Token (Tc) → Sidecar → T1 (Blueprint) → OBO Exchange → TR (Interactive Agent)",
         "vs_autonomous": "/AuthorizationHeaderUnauthenticated/graph-app (no user token needed)",
         "bearer_token_sent": "Tc (user's access token) — sent in Authorization header",
         "why_bearer": "Sidecar needs user's Tc to perform OBO exchange on behalf of that user"
@@ -175,7 +175,7 @@ def get_agent_token_obo(user_token=None):
                 "obo_grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
                 "obo_assertion": "Tc (this Bearer token)",
                 "obo_client_assertion": "T1 (Blueprint's client-credentials token)",
-                "obo_result": "TR — delegated agent token that acts on behalf of the user"
+                "obo_result": "TR — interactive agent token that acts on behalf of the user"
             })
         else:
             log_debug("OBO 2.C NO USER TOKEN", "No user token provided - sidecar may reject or fall back to app-only", {
@@ -195,10 +195,10 @@ def get_agent_token_obo(user_token=None):
                     global _last_tr_claims
                     # Pass through ALL claims from the JWT
                     _last_tr_claims = claims
-                    log_debug("OBO 2.D TOKEN RECEIVED", "Got delegated agent token (TR) via OBO exchange", {
+                    log_debug("OBO 2.D TOKEN RECEIVED", "Got interactive agent token (TR) via OBO exchange", {
                         "_jwt_token": {
                             "type": "tr",
-                            "title": "\U0001f4aa TR \u2014 Agent OBO Token (Delegated)",
+                            "title": "\U0001f4aa TR \u2014 Agent OBO Token (Interactive)",
                             "css": "tr",
                             "hl": "highlight-green",
                             "claims": claims
@@ -255,7 +255,7 @@ def call_weather_api(city: str, token: str, token_label: str = "TR", is_obo: boo
         raw = token.replace("Bearer ", "") if token.startswith("Bearer ") else token
         snippet = raw[:32] + "..." + raw[-16:] if len(raw) > 52 else raw
         if is_obo:
-            token_desc = "TR — Delegated Agent Token (acts on behalf of user via OBO)"
+            token_desc = "TR — Interactive Agent Token (acts on behalf of user via OBO)"
         else:
             token_desc = "TR — Autonomous Agent Token (app-only, no user context) per MS docs"
         

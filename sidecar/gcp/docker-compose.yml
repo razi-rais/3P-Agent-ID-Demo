@@ -3,11 +3,12 @@
 
 services:
   # Microsoft Entra SDK for AgentID Sidecar
+  # NOTE: No ports exposed to host — per Microsoft security guidance,
+  # the SDK API must only be reachable within the same trust boundary.
+  # https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/security
   sidecar:
     image: mcr.microsoft.com/entra-sdk/auth-sidecar:1.0.0-azurelinux3.0-distroless
     container_name: agent-id-sidecar-google
-    ports:
-      - "5002:5000"
     environment:
       # Microsoft Entra ID Configuration - Use BLUEPRINT App ID here!
       - AzureAd__Instance=https://login.microsoftonline.com/
@@ -34,8 +35,10 @@ services:
   weather-api:
     build: ../weather-api
     container_name: weather-api-google
-    ports:
-      - "8082:8080"
+    environment:
+      # Full JWKS signature validation (default: true). Set 'false' to disable.
+      - VALIDATE_TOKEN_SIGNATURE=${VALIDATE_TOKEN_SIGNATURE:-true}
+      - TENANT_ID=${TENANT_ID}
     networks:
       - agent-network-google
     healthcheck:

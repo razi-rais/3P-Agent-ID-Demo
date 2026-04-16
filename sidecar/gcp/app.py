@@ -462,7 +462,7 @@ def check_vertexai_available():
 @app.route('/')
 def index():
     """Serve the chat UI"""
-    return render_template(CHAT_UI_TEMPLATE)
+    return render_template('index.html')
 
 
 @app.route('/api/chat', methods=['POST'])

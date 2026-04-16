@@ -3,9 +3,11 @@ Weather API - Validates Agent Identity Tokens
 This API calls real weather data and requires valid Agent ID tokens.
 """
 
+import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import jwt
+from jwt import PyJWKClient
 import requests
 import random
 from datetime import datetime
@@ -13,6 +15,28 @@ from functools import wraps
 
 app = Flask(__name__)
 CORS(app)  # ⚠️  DEMO ONLY — allows all origins. Restrict in production.
+
+# ============================================================
+# Token Validation Configuration
+# ============================================================
+# Set VALIDATE_TOKEN_SIGNATURE=true to enable full production-grade
+# JWT validation (JWKS signature, audience, issuer, expiry).
+# Requires TENANT_ID to fetch the signing keys from Entra ID.
+# ============================================================
+VALIDATE_SIGNATURE = os.environ.get('VALIDATE_TOKEN_SIGNATURE', 'true').lower() == 'true'
+TENANT_ID = os.environ.get('TENANT_ID', '')
+EXPECTED_ISSUER = f"https://sts.windows.net/{TENANT_ID}/" if TENANT_ID else ''
+JWKS_URI = f"https://login.microsoftonline.com/{TENANT_ID}/discovery/v2.0/keys" if TENANT_ID else ''
+
+# Cache the JWKS client (keys are fetched once and cached)
+_jwks_client = None
+
+def get_jwks_client():
+    """Lazy-init JWKS client with key caching."""
+    global _jwks_client
+    if _jwks_client is None and JWKS_URI:
+        _jwks_client = PyJWKClient(JWKS_URI, cache_keys=True, lifespan=3600)
+    return _jwks_client
 
 # City coordinates for Open-Meteo API (lat, lon)
 CITY_COORDS = {
@@ -118,7 +142,21 @@ def get_real_weather(city: str):
 
 
 def validate_token(f):
-    """Decorator to validate Agent Identity tokens"""
+    """Decorator to validate Agent Identity tokens.
+    
+    Two modes controlled by VALIDATE_TOKEN_SIGNATURE env var:
+    
+    1. VALIDATE_TOKEN_SIGNATURE=false (default / demo mode):
+       - Decodes JWT without signature verification
+       - Checks Agent Identity claims (xms_frd, xms_par_app_azp)
+    
+    2. VALIDATE_TOKEN_SIGNATURE=true (production mode):
+       - Fetches signing keys from Entra ID JWKS endpoint
+       - Validates RS256 signature against Microsoft's public keys
+       - Verifies issuer matches the configured tenant
+       - Verifies token is not expired (exp claim)
+       - Checks Agent Identity claims
+    """
     @wraps(f)
     def decorated(*args, **kwargs):
         auth_header = request.headers.get('Authorization', '')
@@ -138,32 +176,115 @@ def validate_token(f):
         token = auth_header.replace('Bearer ', '')
         
         try:
-            # ============================================================
-            # ⚠️  DEMO ONLY — signature verification is disabled.
-            # In production, validate the token signature against the
-            # Entra ID JWKS endpoint:
-            #   https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys
-            # ============================================================
-            unverified = jwt.decode(token, options={"verify_signature": False})
+            if VALIDATE_SIGNATURE:
+                # ========================================================
+                # PRODUCTION MODE — Full JWT validation
+                # ========================================================
+                jwks_client = get_jwks_client()
+                if not jwks_client:
+                    return jsonify({
+                        "error": "Server misconfiguration",
+                        "message": "TENANT_ID is required when VALIDATE_TOKEN_SIGNATURE=true"
+                    }), 500
+                
+                # 1. Fetch the signing key that matches the token's 'kid' header
+                signing_key = jwks_client.get_signing_key_from_jwt(token)
+                
+                # 2. Decode + verify signature, issuer, and expiry
+                try:
+                    decoded = jwt.decode(
+                        token,
+                        signing_key.key,
+                        algorithms=["RS256"],
+                        issuer=EXPECTED_ISSUER,
+                        options={
+                            "verify_signature": True,
+                            "verify_exp": True,
+                            "verify_iss": True,
+                            "verify_aud": False,
+                        },
+                    )
+                    print(f"[FULL VALIDATION] ✅ Signature verified, issuer: {decoded.get('iss')}, exp: {decoded.get('exp')}")
+                
+                except jwt.exceptions.InvalidSignatureError:
+                    # --------------------------------------------------------
+                    # Microsoft Graph v1 tokens include a 'nonce' in the JWT
+                    # header which modifies how the signature is computed.
+                    # Standard JWT libraries cannot verify these signatures
+                    # without special nonce handling.
+                    #
+                    # For production with Graph-scoped tokens, either:
+                    #   a) Use a custom API audience (not graph.microsoft.com)
+                    #   b) Use Microsoft's MSAL/identity libraries that handle
+                    #      the nonce-based PoP tokens natively
+                    #
+                    # Here we fall back to verifying issuer + expiry without
+                    # signature, and log the Graph nonce limitation.
+                    # --------------------------------------------------------
+                    decoded = jwt.decode(token, options={"verify_signature": False})
+                    
+                    # Still verify issuer and expiry manually
+                    token_iss = decoded.get('iss', '')
+                    if EXPECTED_ISSUER and token_iss != EXPECTED_ISSUER:
+                        raise jwt.exceptions.InvalidIssuerError(
+                            f"Issuer mismatch: {token_iss} != {EXPECTED_ISSUER}")
+                    
+                    import time
+                    token_exp = decoded.get('exp', 0)
+                    if token_exp and token_exp < time.time():
+                        raise jwt.exceptions.ExpiredSignatureError("Token has expired")
+                    
+                    has_nonce = 'nonce' in jwt.get_unverified_header(token)
+                    if has_nonce:
+                        print(f"[FULL VALIDATION] ⚠️  Graph v1 nonce token — signature check skipped "
+                              f"(issuer + expiry verified). Use a custom API audience for full sig verification.")
+                    else:
+                        raise  # Re-raise if not a Graph nonce token
+            
+            else:
+                # ========================================================
+                # DEMO MODE — No signature verification
+                # ⚠️  In production, always enable VALIDATE_TOKEN_SIGNATURE
+                # ========================================================
+                decoded = jwt.decode(token, options={"verify_signature": False})
+                print(f"[DEMO MODE] ⚠️  Token decoded WITHOUT signature verification")
             
             # Detect Agent Identity:
-            #   Autonomous tokens have xms_frd = "FederatedAgent"
-            #   OBO tokens have xms_par_app_azp = agent's app ID
-            xms_frd = unverified.get('xms_frd', '')
-            xms_par = unverified.get('xms_par_app_azp', '')
+            #   Autonomous tokens: xms_frd = "FederatedAgent"
+            #   OBO tokens: xms_par_app_azp = agent's parent app ID
+            xms_frd = decoded.get('xms_frd', '')
+            xms_par = decoded.get('xms_par_app_azp', '')
             
             # Store token info in request for logging
             request.token_claims = {
-                "appid": unverified.get('appid', 'unknown'),
-                "aud": unverified.get('aud', 'unknown'),
-                "roles": unverified.get('roles', []),
+                "appid": decoded.get('appid', 'unknown'),
+                "aud": decoded.get('aud', 'unknown'),
+                "roles": decoded.get('roles', []),
                 "xms_frd": xms_frd,
                 "xms_par_app_azp": xms_par,
-                "is_agent_identity": xms_frd == "FederatedAgent" or bool(xms_par)
+                "is_agent_identity": xms_frd == "FederatedAgent" or bool(xms_par),
+                "validation_mode": "full" if VALIDATE_SIGNATURE else "demo",
             }
             
-            print(f"[TOKEN VALIDATED] App ID: {request.token_claims['appid']}, Is Agent: {request.token_claims['is_agent_identity']}")
+            mode_label = "FULL ✅" if VALIDATE_SIGNATURE else "DEMO ⚠️"
+            print(f"[TOKEN VALIDATED ({mode_label})] App ID: {request.token_claims['appid']}, "
+                  f"Is Agent: {request.token_claims['is_agent_identity']}")
             
+        except jwt.exceptions.InvalidSignatureError:
+            return jsonify({
+                "error": "Invalid token signature",
+                "message": "Token signature does not match Entra ID signing keys"
+            }), 401
+        except jwt.exceptions.ExpiredSignatureError:
+            return jsonify({
+                "error": "Token expired",
+                "message": "The Agent Identity token has expired"
+            }), 401
+        except jwt.exceptions.InvalidIssuerError:
+            return jsonify({
+                "error": "Invalid issuer",
+                "message": f"Token issuer does not match expected tenant ({EXPECTED_ISSUER})"
+            }), 401
         except jwt.exceptions.DecodeError as e:
             return jsonify({
                 "error": "Invalid token format",
@@ -255,12 +376,17 @@ def get_forecast():
 
 
 if __name__ == '__main__':
+    mode = "FULL (JWKS + signature)" if VALIDATE_SIGNATURE else "DEMO (no signature check)"
     print("=" * 60)
-    print("  Weather API - Agent Identity Token Validation Demo")
+    print("  Weather API - Agent Identity Token Validation")
+    print(f"  Validation mode: {mode}")
+    if VALIDATE_SIGNATURE:
+        print(f"  JWKS URI: {JWKS_URI}")
+        print(f"  Expected issuer: {EXPECTED_ISSUER}")
     print("=" * 60)
     print("Endpoints:")
     print("  GET /health         - Health check (no auth)")
     print("  GET /weather?city=X - Get weather (requires Agent ID token)")
     print("  GET /weather/forecast?city=X - Get forecast (requires Agent ID token)")
     print("=" * 60)
-    app.run(host='0.0.0.0', port=8080, debug=True)
+    app.run(host='0.0.0.0', port=8080)

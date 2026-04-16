@@ -3,11 +3,12 @@
 
 services:
   # Microsoft Entra SDK for AgentID Sidecar
+  # NOTE: No ports exposed to host — per Microsoft security guidance,
+  # the SDK API must only be reachable within the same trust boundary.
+  # https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/security
   sidecar:
     image: mcr.microsoft.com/entra-sdk/auth-sidecar:1.0.0-azurelinux3.0-distroless
     container_name: agent-id-sidecar-aws
-    ports:
-      - "5001:5000"
     environment:
       # Microsoft Entra ID Configuration
       # Docs: https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/configuration
@@ -41,8 +42,10 @@ services:
   weather-api:
     build: ../weather-api
     container_name: weather-api-aws
-    ports:
-      - "8080:8080"
+    environment:
+      # Full JWKS signature validation (default: true). Set 'false' to disable.
+      - VALIDATE_TOKEN_SIGNATURE=${VALIDATE_TOKEN_SIGNATURE:-true}
+      - TENANT_ID=${TENANT_ID}
     networks:
       - agent-network-aws
     healthcheck:

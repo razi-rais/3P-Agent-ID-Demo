@@ -3,11 +3,12 @@
 
 services:
   # Microsoft Entra SDK for AgentID Sidecar
+  # NOTE: No ports exposed to host — per Microsoft security guidance,
+  # the SDK API must only be reachable within the same trust boundary.
+  # https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/security
   sidecar:
     image: mcr.microsoft.com/entra-sdk/auth-sidecar:1.0.0-azurelinux3.0-distroless
-    container_name: agent-id-sidecar
-    ports:
-      - "5001:5000"
+    container_name: agent-id-sidecar-dev
     environment:
       # Microsoft Entra ID Configuration - Use BLUEPRINT App ID here!
       - AzureAd__Instance=https://login.microsoftonline.com/
@@ -18,26 +19,32 @@ services:
       - AzureAd__ClientCredentials__0__SourceType=ClientSecret
       - AzureAd__ClientCredentials__0__ClientSecret=${BLUEPRINT_CLIENT_SECRET}
       
-      # Downstream API configuration (Microsoft Graph)
+      # Downstream API: autonomous / app-only (client credentials)
+      - DownstreamApis__graph-app__BaseUrl=https://graph.microsoft.com/v1.0/
+      - DownstreamApis__graph-app__Scopes__0=https://graph.microsoft.com/.default
+      - DownstreamApis__graph-app__RequestAppToken=true
+      
+      # Downstream API: OBO / delegated (on-behalf-of user)
       - DownstreamApis__graph__BaseUrl=https://graph.microsoft.com/v1.0/
       - DownstreamApis__graph__Scopes__0=https://graph.microsoft.com/.default
-      - DownstreamApis__graph__RequestAppToken=true
       
       # ASP.NET Core settings
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:5000
       - AllowedHosts=*
     networks:
-      - agent-network
+      - agent-network-dev
 
   # Weather API - Validates Agent Identity tokens
   weather-api:
     build: ../weather-api
-    container_name: weather-api
-    ports:
-      - "8080:8080"
+    container_name: weather-api-dev
+    environment:
+      # Full JWKS signature validation (default: true). Set 'false' to disable.
+      - VALIDATE_TOKEN_SIGNATURE=${VALIDATE_TOKEN_SIGNATURE:-true}
+      - TENANT_ID=${TENANT_ID}
     networks:
-      - agent-network
+      - agent-network-dev
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
@@ -47,31 +54,34 @@ services:
   # LLM Agent with Chat UI
   llm-agent:
     build: .
-    container_name: llm-agent
+    container_name: llm-agent-dev
     ports:
-      - "3000:3000"
+      - "3003:3000"
     environment:
       - SIDECAR_URL=http://sidecar:5000
       - WEATHER_API_URL=http://weather-api:8080
       - AGENT_APP_ID=${AGENT_CLIENT_ID}
+      - BLUEPRINT_APP_ID=${BLUEPRINT_APP_ID}
+      - TENANT_ID=${TENANT_ID}
+      - CLIENT_SPA_APP_ID=${CLIENT_SPA_APP_ID:-}
       - OLLAMA_URL=http://ollama:11434
       - OLLAMA_MODEL=qwen2.5:1.5b
     depends_on:
       - sidecar
       - weather-api
     networks:
-      - agent-network
+      - agent-network-dev
 
   # Ollama LLM (optional - for natural language responses)
   ollama:
     image: ollama/ollama:latest
-    container_name: ollama
+    container_name: ollama-dev
     ports:
       - "11434:11434"
     volumes:
       - ollama-data:/root/.ollama
     networks:
-      - agent-network
+      - agent-network-dev
     # Uncomment below for GPU support
     # deploy:
     #   resources:
@@ -82,7 +92,7 @@ services:
     #           capabilities: [gpu]
 
 networks:
-  agent-network:
+  agent-network-dev:
     driver: bridge
 
 volumes:

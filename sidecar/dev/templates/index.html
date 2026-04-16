@@ -3,14 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3P Agent Identity Demo</title>
+    <title>Powered by Microsoft Entra Agent ID</title>
+    <!-- MSAL.js for interactive sign-in (OBO flow) -->
+    <script src="https://alcdn.msauth.net/browser/2.38.2/js/msal-browser.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            min-height: 100vh;
+            height: 100vh;
             color: #fff;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
         .container {
             max-width: 1400px;
@@ -19,7 +24,8 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 20px;
-            height: 100vh;
+            flex: 1;
+            min-height: 0;
         }
         .panel {
             background: rgba(255,255,255,0.05);
@@ -27,13 +33,15 @@
             padding: 20px;
             display: flex;
             flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
         }
         .panel-header {
             display: flex;
             align-items: center;
             gap: 10px;
-            margin-bottom: 20px;
-            padding-bottom: 15px;
+            margin-bottom: 15px;
+            padding-bottom: 12px;
             border-bottom: 1px solid rgba(255,255,255,0.1);
         }
         .panel-header h2 { font-size: 1.2rem; font-weight: 600; }
@@ -41,13 +49,13 @@
             width: 32px; height: 32px;
             border-radius: 8px;
             display: flex; align-items: center; justify-content: center;
-            font-size: 1.2rem;
         }
-        .icon-chat { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-        .icon-debug { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+        .icon svg { width: 18px; height: 18px; fill: #fff; }
+        .icon-chat { background: linear-gradient(135deg, #0078d4 0%, #005a9e 100%); }
+        .icon-debug { background: linear-gradient(135deg, #8661c5 0%, #5b2d8e 100%); }
         .chat-messages {
             flex: 1; overflow-y: auto;
-            padding: 10px; margin-bottom: 20px;
+            padding: 10px; margin-bottom: 15px;
         }
         .message {
             margin-bottom: 15px; padding: 12px 16px;
@@ -91,29 +99,54 @@
             font-size: 0.8rem;
         }
         .debug-entry {
-            margin-bottom: 12px; padding: 10px;
+            margin-bottom: 10px; padding: 8px 10px;
             background: rgba(0,0,0,0.3);
             border-radius: 8px;
             border-left: 3px solid #667eea;
+            font-family: 'Monaco','Menlo',monospace;
+            font-size: 0.68rem;
         }
         .debug-entry.error { border-left-color: #f5576c; }
         .debug-entry.success { border-left-color: #2ecc71; }
+        .debug-entry.obo { border-left-color: #667eea; }
         .debug-step {
             color: #667eea; font-weight: 600;
-            margin-bottom: 4px;
+            margin-bottom: 3px;
+            font-size: 0.72rem;
         }
         .debug-entry.error .debug-step { color: #f5576c; }
         .debug-entry.success .debug-step { color: #2ecc71; }
-        .debug-message { color: rgba(255,255,255,0.9); margin-bottom: 6px; }
+        .debug-entry.obo .debug-step { color: #667eea; }
+        .debug-message { color: rgba(255,255,255,0.85); margin-bottom: 5px; font-size: 0.68rem; }
         .debug-data {
             background: rgba(0,0,0,0.4);
             padding: 8px; border-radius: 4px;
-            overflow-x: auto; white-space: pre-wrap;
-            color: #a8e6cf; font-size: 0.75rem;
+            overflow-x: auto;
+            font-size: 0.72rem;
         }
+        .debug-data .data-row {
+            display: flex;
+            padding: 2px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .debug-data .data-row:last-child { border-bottom: none; }
+        .debug-data .data-key {
+            color: rgba(255,255,255,0.45);
+            min-width: 120px;
+            flex-shrink: 0;
+            font-size: 0.68rem;
+        }
+        .debug-data .data-val {
+            color: #a8e6cf;
+            word-break: break-all;
+            font-size: 0.68rem;
+        }
+        .debug-data .data-val.pass { color: #2ecc71; font-weight: 600; }
+        .debug-data .data-val.warn { color: #f5a623; }
+        .debug-data .data-val.info { color: rgba(255,255,255,0.8); }
         .status-bar {
             display: flex; gap: 15px;
-            padding: 10px; margin-bottom: 10px;
+            padding: 8px 10px; margin-bottom: 8px;
             background: rgba(0,0,0,0.2);
             border-radius: 8px; font-size: 0.8rem;
         }
@@ -124,39 +157,138 @@
         }
         .status-dot.online { background: #2ecc71; }
         .status-dot.offline { background: #f5576c; }
-        .toggle-container {
-            display: flex; align-items: center; gap: 10px;
-            margin-bottom: 10px; padding: 10px;
+        /* ---- Mode selectors (2 rows) ---- */
+        .controls-group {
+            margin-bottom: 8px;
+        }
+        .control-row {
+            display: flex; gap: 6px;
+            padding: 6px;
             background: rgba(0,0,0,0.2); border-radius: 8px;
+            margin-bottom: 6px;
         }
-        .toggle-switch {
-            position: relative;
-            width: 50px; height: 26px;
+        .control-label {
+            display: flex; align-items: center;
+            font-size: 0.72rem; font-weight: 700;
+            color: rgba(255,255,255,0.5);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 0 8px;
+            min-width: 52px;
         }
-        .toggle-switch input { opacity: 0; width: 0; height: 0; }
-        .toggle-slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background-color: #555;
-            transition: 0.4s;
-            border-radius: 26px;
+        .mode-btn {
+            flex: 1; padding: 8px 10px;
+            border: 2px solid rgba(255,255,255,0.12);
+            border-radius: 8px;
+            background: rgba(255,255,255,0.04);
+            color: rgba(255,255,255,0.6);
+            font-size: 0.78rem; font-weight: 600;
+            cursor: pointer; transition: all 0.25s;
+            text-align: center;
         }
-        .toggle-slider:before {
-            position: absolute;
-            content: "";
-            height: 20px; width: 20px;
-            left: 3px; bottom: 3px;
-            background-color: white;
-            transition: 0.4s;
-            border-radius: 50%;
+        .mode-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        .mode-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: #667eea; color: #fff;
         }
-        .toggle-switch input:checked + .toggle-slider { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-        .toggle-switch input:checked + .toggle-slider:before { transform: translateX(24px); }
-        .mode-warning {
-            font-size: 0.8em;
-            color: #f39c12;
-            margin-left: 10px;
+        .mode-btn.active.obo-active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: #667eea;
+        }
+        .mode-desc {
+            font-size: 0.68rem; font-weight: 400;
+            display: block; margin-top: 2px;
+            opacity: 0.75;
+        }
+        /* Sign-in banner */
+        .signin-banner {
+            display: none;
+            padding: 10px 14px;
+            background: rgba(102, 126, 234, 0.15);
+            border: 1px solid rgba(102, 126, 234, 0.4);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 0.82rem;
+            align-items: center; gap: 10px;
+        }
+        .signin-banner.visible { display: flex; }
+        .signin-banner .user-info { flex: 1; color: rgba(255,255,255,0.9); }
+        .signin-banner .user-email { color: #667eea; font-weight: 600; }
+        .signin-btn {
+            padding: 7px 16px;
+            border: none; border-radius: 6px;
+            font-weight: 600; font-size: 0.8rem;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .signin-btn.login {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+        }
+        .signin-btn.login:hover { transform: scale(1.05); }
+        .signin-btn.logout {
+            background: rgba(255,255,255,0.1);
+            color: rgba(255,255,255,0.7);
+        }
+        .signin-btn.logout:hover { background: rgba(255,255,255,0.2); }
+        /* Token viewer cards */
+        .token-card {
+            background: rgba(0,0,0,0.4);
+            border-radius: 4px;
+            padding: 8px;
+            border-left: 3px solid #667eea;
+            font-family: 'Monaco','Menlo',monospace;
+            font-size: 0.68rem;
+        }
+        .token-card.tc { border-left-color: #f5a623; }
+        .token-card.tr { border-left-color: #9b59b6; }
+        .token-card.t1 { border-left-color: #e056fd; }
+        .token-card-title {
+            font-weight: 700;
+            margin-bottom: 6px;
+            font-size: 0.72rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .token-card.tc .token-card-title { color: #f5a623; }
+        .token-card.tr .token-card-title { color: #9b59b6; }
+        .token-card.t1 .token-card-title { color: #e056fd; }
+        .token-claim {
+            display: flex;
+            padding: 2px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .token-claim:last-child { border-bottom: none; }
+        .claim-key {
+            color: rgba(255,255,255,0.45);
+            min-width: 120px;
+            font-size: 0.68rem;
+        }
+        .claim-val {
+            color: rgba(255,255,255,0.85);
+            word-break: break-all;
+            font-size: 0.68rem;
+        }
+        .claim-val.highlight { color: #fdcb6e; font-weight: 600; }
+        .claim-val.highlight-purple { color: #e056fd; font-weight: 600; }
+        .claim-val.highlight-green { color: #2ecc71; font-weight: 600; }
+        .identity-info {
+            display: flex; flex-wrap: wrap; gap: 6px 16px;
+            padding: 6px 10px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 6px;
+            margin-bottom: 8px;
+            font-family: 'Monaco','Menlo',monospace;
+            font-size: 0.68rem;
+        }
+        .identity-info .id-label {
+            color: rgba(255,255,255,0.45);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .identity-info .id-value {
+            color: rgba(255,255,255,0.85);
+            user-select: all;
         }
         @media (max-width: 900px) {
             .container { grid-template-columns: 1fr; }
@@ -167,17 +299,50 @@
     <div class="container">
         <div class="panel">
             <div class="panel-header">
-                <div class="icon icon-chat">🤖</div>
-                <h2>3P Agent Identity Demo</h2>
+                <div class="icon icon-chat"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C9.24 2 7 4.24 7 7v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7c0-2.76-2.24-5-5-5zm0 1.5A3.5 3.5 0 0 1 15.5 7v3h-7V7A3.5 3.5 0 0 1 12 3.5zm0 10a1.5 1.5 0 0 1 .75 2.8V18a.75.75 0 0 1-1.5 0v-1.7A1.5 1.5 0 0 1 12 13.5z"/></svg></div>
+                <h2>Powered by Microsoft Entra Agent ID</h2>
             </div>
-            <div class="toggle-container">
-                <label class="toggle-switch">
-                    <input type="checkbox" id="langchainToggle">
-                    <span class="toggle-slider"></span>
-                </label>
-                <span id="modeLabel">Direct Mode (Skip LLM, call tool directly)</span>
-                <span id="modeWarning" class="mode-warning" style="display: none;">⚠️ First LLM request may take 30-60s</span>
+
+            <div class="identity-info" id="identityInfo">
+                <span><span class="id-label">Tenant ID: </span><span class="id-value" id="dispTenantId">&hellip;</span></span>
+                <span><span class="id-label">Agent ID: </span><span class="id-value" id="dispAgentId">&hellip;</span></span>
             </div>
+
+            <!-- Two-row mode selector -->
+            <div class="controls-group">
+                <div class="control-row">
+                    <div class="control-label">Execution Mode</div>
+                    <button class="mode-btn active" data-group="llm" data-mode="direct" onclick="setLlmMode('direct')">
+                        &#x26A1; Direct
+                        <span class="mode-desc">Skip LLM, call tool</span>
+                    </button>
+                    <button class="mode-btn" data-group="llm" data-mode="ollama" onclick="setLlmMode('ollama')">
+                        &#x1F4BB; Ollama
+                        <span class="mode-desc">Local LLM decides tools</span>
+                    </button>
+                </div>
+                <div class="control-row">
+                    <div class="control-label">Identity Flow</div>
+                    <button class="mode-btn active" data-group="token" data-mode="autonomous" onclick="setTokenFlow('autonomous')">
+                        &#x1F512; Autonomous
+                        <span class="mode-desc">Agent acts alone</span>
+                    </button>
+                    <button class="mode-btn" data-group="token" data-mode="obo" onclick="setTokenFlow('obo')">
+                        &#x1F465; On-Behalf-Of
+                        <span class="mode-desc">Agent acts as user</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- OBO sign-in banner -->
+            <div class="signin-banner" id="signinBanner">
+                <div class="user-info" id="userInfo">
+                    &#x1F511; OBO mode requires user sign-in via Microsoft Entra ID
+                </div>
+                <button class="signin-btn login" id="signinBtn" onclick="msalSignIn()">Sign In</button>
+                <button class="signin-btn logout" id="signoutBtn" onclick="msalSignOut()" style="display:none;">Sign Out</button>
+            </div>
+
             <div class="status-bar">
                 <div class="status-item">
                     <span class="status-dot" id="ollamaStatus"></span>
@@ -191,39 +356,30 @@
                     <span class="status-dot online"></span>
                     <span>Weather API</span>
                 </div>
+                <div class="status-item" id="oboStatusItem" style="display:none;">
+                    <span class="status-dot offline" id="oboStatus"></span>
+                    <span>User Auth</span>
+                </div>
             </div>
+
             <div class="chat-messages" id="chatMessages">
                 <div class="message assistant">
-                    👋 Hi! I'm a weather agent demonstrating Agent Identity tokens.
+                    Weather agent powered by <strong>Entra Agent ID</strong> + <strong>Ollama</strong>.
                     <br><br>
-                    <strong>Two Modes:</strong><br>
-                    <br>
-                    <strong>⚡ Direct Mode (Default)</strong> - Fast demo of token flow<br>
-                    1. Tool gets Agent Identity token from sidecar<br>
-                    2. Tool calls Weather API with token<br>
-                    3. API validates token and returns data<br>
-                    <br>
-                    <strong>🔗 LangChain Mode</strong> - LLM decides to call tools<br>
-                    1. Your question goes to the LLM (Ollama)<br>
-                    2. LLM decides to use the <code>get_weather</code> tool<br>
-                    3. Tool gets Agent Identity token from sidecar<br>
-                    4. Tool calls Weather API with token<br>
-                    5. LLM formats the response<br>
-                    <br>
-                    <em>Note: First LangChain request may take 30-60s (model loading)</em><br>
-                    <br>
-                    Ask about weather in your favorite city, e.g. "What is weather in Dallas?"
+                    Use the controls above to pick a <strong>Mode</strong> (Direct or Ollama) and an <strong>Identity</strong> flow (Autonomous or On-Behalf-Of).
+                    <br><br>
+                    Try: <em>"What is weather in Dallas?"</em>
                 </div>
             </div>
             <div class="input-area">
-                <input type="text" id="userInput" placeholder="Ask about the weather in any city..." />
+                <input type="text" id="userInput" value="Weather in Dallas?" placeholder="Ask about the weather in any city..." />
                 <button id="sendBtn" onclick="sendMessage()">Send</button>
             </div>
         </div>
         <div class="panel">
             <div class="panel-header">
-                <div class="icon icon-debug">🔍</div>
-                <h2>Agent Identity Token Flow</h2>
+                <div class="icon icon-debug"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2a1 1 0 0 1 1 1v3.09c1.27.2 2.42.7 3.38 1.45l2.19-2.19a1 1 0 1 1 1.41 1.42l-2.18 2.18A7.96 7.96 0 0 1 19.96 12H20a1 1 0 1 1 0 2h-.04a7.96 7.96 0 0 1-2.16 3.05l2.18 2.18a1 1 0 0 1-1.41 1.42l-2.19-2.19A7.96 7.96 0 0 1 13 19.91V23a1 1 0 1 1-2 0v-3.09a7.96 7.96 0 0 1-3.38-1.45l-2.19 2.19a1 1 0 0 1-1.41-1.42l2.18-2.18A7.96 7.96 0 0 1 4.04 14H4a1 1 0 1 1 0-2h.04A7.96 7.96 0 0 1 6.2 8.95L4.02 6.77a1 1 0 0 1 1.41-1.42L7.62 7.54A7.96 7.96 0 0 1 11 6.09V3a1 1 0 0 1 1-1zm0 6a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0 2a3 3 0 1 1 0 6 3 3 0 0 1 0-6z"/></svg></div>
+                <h2>Agent Identity Flow</h2>
             </div>
             <div class="debug-content" id="debugContent">
                 <div class="debug-entry">
@@ -235,51 +391,199 @@
     </div>
 
     <script>
+        // ==============================
+        // State
+        // ==============================
+        let llmMode = 'direct';
+        let tokenFlow = 'autonomous';
+        let msalInstance = null;
+        let msalConfig = null;
+        let currentUserToken = null;
+        let currentAccount = null;
+
         const chatMessages = document.getElementById('chatMessages');
         const debugContent = document.getElementById('debugContent');
         const userInput = document.getElementById('userInput');
         const sendBtn = document.getElementById('sendBtn');
-        const langchainToggle = document.getElementById('langchainToggle');
-        const modeLabel = document.getElementById('modeLabel');
         const ollamaStatus = document.getElementById('ollamaStatus');
-        
-        // Check Ollama status
+        const signinBanner = document.getElementById('signinBanner');
+        const userInfo = document.getElementById('userInfo');
+        const signinBtn = document.getElementById('signinBtn');
+        const signoutBtn = document.getElementById('signoutBtn');
+        const oboStatusItem = document.getElementById('oboStatusItem');
+        const oboStatus = document.getElementById('oboStatus');
+
+        // ==============================
+        // Mode Selectors
+        // ==============================
+        function setLlmMode(mode) {
+            llmMode = mode;
+            document.querySelectorAll('[data-group="llm"]').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === mode);
+            });
+        }
+
+        function setTokenFlow(flow) {
+            tokenFlow = flow;
+            document.querySelectorAll('[data-group="token"]').forEach(btn => {
+                btn.classList.remove('active', 'obo-active');
+                if (btn.dataset.mode === flow) {
+                    btn.classList.add('active');
+                    if (flow === 'obo') btn.classList.add('obo-active');
+                }
+            });
+            signinBanner.classList.toggle('visible', flow === 'obo');
+            oboStatusItem.style.display = flow === 'obo' ? 'flex' : 'none';
+            updateOboUI();
+        }
+
+        function updateOboUI() {
+            if (currentAccount) {
+                const name = currentAccount.name || currentAccount.username;
+                userInfo.innerHTML = '&#x2705; Signed in as <span class="user-email">' + name + '</span>';
+                signinBtn.style.display = 'none';
+                signoutBtn.style.display = 'inline-block';
+                oboStatus.className = 'status-dot online';
+            } else {
+                userInfo.innerHTML = '&#x1F511; OBO mode requires user sign-in via Microsoft Entra ID';
+                signinBtn.style.display = 'inline-block';
+                signoutBtn.style.display = 'none';
+                oboStatus.className = 'status-dot offline';
+                currentUserToken = null;
+            }
+        }
+
+        // ==============================
+        // MSAL.js Initialization
+        // ==============================
+        async function initMsal() {
+            try {
+                const resp = await fetch('/api/config');
+                msalConfig = await resp.json();
+                // Populate identity info bar
+                if (msalConfig.tenant_id) document.getElementById('dispTenantId').textContent = msalConfig.tenant_id;
+                if (msalConfig.agent_app_id) document.getElementById('dispAgentId').textContent = msalConfig.agent_app_id;
+
+                const msalClientId = msalConfig.client_spa_app_id || msalConfig.blueprint_app_id;
+                if (!msalClientId || !msalConfig.tenant_id) {
+                    console.warn('MSAL config incomplete — OBO sign-in disabled');
+                    return;
+                }
+                msalInstance = new msal.PublicClientApplication({
+                    auth: {
+                        clientId: msalClientId,
+                        authority: msalConfig.authority,
+                        redirectUri: msalConfig.redirect_uri,
+                    },
+                    cache: {
+                        cacheLocation: 'sessionStorage',
+                        storeAuthStateInCookie: false,
+                    }
+                });
+                await msalInstance.initialize();
+                const accounts = msalInstance.getAllAccounts();
+                if (accounts.length > 0) {
+                    currentAccount = accounts[0];
+                    await acquireTokenSilent();
+                    updateOboUI();
+                }
+            } catch (e) {
+                console.error('MSAL init error:', e);
+            }
+        }
+
+        async function acquireTokenSilent() {
+            if (!msalInstance || !currentAccount || !msalConfig) return null;
+            try {
+                const result = await msalInstance.acquireTokenSilent({
+                    account: currentAccount,
+                    scopes: msalConfig.obo_scopes,
+                });
+                currentUserToken = result.accessToken;
+                return result.accessToken;
+            } catch (e) {
+                console.warn('Silent token failed, need interactive:', e);
+                currentUserToken = null;
+                return null;
+            }
+        }
+
+        async function msalSignIn() {
+            if (!msalInstance || !msalConfig) {
+                addMessage('MSAL not initialized. Check console for errors.', false);
+                return;
+            }
+            try {
+                const result = await msalInstance.loginPopup({
+                    scopes: msalConfig.obo_scopes,
+                });
+                currentAccount = result.account;
+                currentUserToken = result.accessToken;
+                updateOboUI();
+                addMessage('&#x2705; Signed in as <strong>' + (currentAccount.name || currentAccount.username) + '</strong>. OBO flow is now active!', false);
+            } catch (e) {
+                console.error('Sign-in error:', e);
+                if (e.errorCode !== 'user_cancelled') {
+                    addMessage('Sign-in failed: ' + e.message, false);
+                }
+            }
+        }
+
+        function msalSignOut() {
+            if (msalInstance && currentAccount) {
+                msalInstance.logoutPopup({ account: currentAccount }).catch(() => {});
+            }
+            currentAccount = null;
+            currentUserToken = null;
+            updateOboUI();
+        }
+
+        initMsal();
+
+        // ==============================
+        // Status check
+        // ==============================
         async function checkStatus() {
             try {
                 const response = await fetch('/api/status');
                 const data = await response.json();
                 ollamaStatus.className = 'status-dot ' + (data.ollama_available ? 'online' : 'offline');
-                if (!data.ollama_available) {
-                    langchainToggle.checked = false;
-                    updateModeLabel();
-                }
             } catch (e) {
                 ollamaStatus.className = 'status-dot offline';
             }
         }
         checkStatus();
         setInterval(checkStatus, 10000);
-        
-        langchainToggle.addEventListener('change', updateModeLabel);
-        function updateModeLabel() {
-            const modeWarning = document.getElementById('modeWarning');
-            if (langchainToggle.checked) {
-                modeLabel.textContent = 'LangChain Mode (LLM decides to call tools)';
-                modeWarning.style.display = 'inline';
-            } else {
-                modeLabel.textContent = 'Direct Mode (Skip LLM, call tool directly)';
-                modeWarning.style.display = 'none';
+
+        // ==============================
+        // Chat helpers
+        // ==============================
+        function renderDataBlock(data) {
+            let html = '<div class="debug-data">';
+            for (const [key, val] of Object.entries(data)) {
+                const label = key.replace(/^\d+_/, '').replace(/_/g, ' ');
+                const strVal = typeof val === 'object' ? JSON.stringify(val) : String(val);
+                let cls = 'data-val';
+                if (strVal.startsWith('PASS')) cls += ' pass';
+                else if (strVal.startsWith('CHECK') || strVal.startsWith('NONE') || strVal.includes('⚠')) cls += ' warn';
+                else cls += ' info';
+                html += '<div class="data-row">'
+                    + '<span class="data-key">' + label + '</span>'
+                    + '<span class="' + cls + '">' + strVal + '</span>'
+                    + '</div>';
             }
+            html += '</div>';
+            return html;
         }
-        
+
         function addMessage(content, isUser) {
             const div = document.createElement('div');
             div.className = 'message ' + (isUser ? 'user' : 'assistant');
-            div.innerHTML = content.replace(/\\n/g, '<br>');
+            div.innerHTML = content.replace(/\\\\n/g, '<br>');
             chatMessages.appendChild(div);
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
-        
+
         function updateDebug(debugLogs) {
             debugContent.innerHTML = '';
             debugLogs.forEach(entry => {
@@ -287,58 +591,101 @@
                 let entryClass = 'debug-entry';
                 if (entry.step.includes('ERROR')) entryClass += ' error';
                 if (entry.step.includes('COMPLETE') || entry.step.includes('RECEIVED')) entryClass += ' success';
+                if (entry.step.startsWith('OBO') || entry.step.includes('OBO')) entryClass += ' obo';
                 div.className = entryClass;
-                
-                let html = `<div class="debug-step">✅ ${entry.step}</div>`;
-                html += `<div class="debug-message">${entry.message}</div>`;
-                if (entry.data) {
-                    html += `<div class="debug-data">${JSON.stringify(entry.data, null, 2)}</div>`;
+
+                let icon = '&#x2713;';  // ✓ for all steps
+                if (entry.step.includes('ERROR')) icon = '&#x2717;';  // ✗
+
+                let html = '<div class="debug-step">' + icon + ' ' + entry.step + '</div>';
+                html += '<div class="debug-message">' + entry.message + '</div>';
+                if (entry.data && entry.data._jwt_token) {
+                    const tok = entry.data._jwt_token;
+                    html += makeTokenCard(tok.title, tok.claims, tok.css, tok.hl);
+                } else if (entry.message === '_doc_links') {
+                    div.className = 'debug-entry';
+                    div.style.borderLeftColor = '#667eea';
+                    html = '<div style="font-size:0.68rem; text-align:center; padding:4px 0;">'
+                        + '<a href="https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference" target="_blank" style="color:#667eea; text-decoration:none;">&#x1F4D6; Access token claims</a>'
+                        + ' | '
+                        + '<a href="https://learn.microsoft.com/en-us/entra/identity-platform/id-token-claims-reference" target="_blank" style="color:#667eea; text-decoration:none;">ID token claims</a>'
+                        + ' | '
+                        + '<a href="https://learn.microsoft.com/en-us/entra/agent-id/identity-platform/agent-on-behalf-of-oauth-flow" target="_blank" style="color:#667eea; text-decoration:none;">Agent OBO flow</a>'
+                        + '</div>';
+                } else if (entry.data) {
+                    html += renderDataBlock(entry.data);
                 }
                 div.innerHTML = html;
                 debugContent.appendChild(div);
             });
             debugContent.scrollTop = debugContent.scrollHeight;
         }
-        
+
+        // ==============================
+        // Send message
+        // ==============================
         async function sendMessage() {
             const message = userInput.value.trim();
             if (!message) return;
-            
+
+            if (tokenFlow === 'obo' && !currentUserToken) {
+                const silentToken = await acquireTokenSilent();
+                if (!silentToken) {
+                    addMessage(message, true);
+                    addMessage('&#x1F511; Please sign in first to use OBO mode. Click the <strong>Sign In</strong> button above.', false);
+                    return;
+                }
+            }
+
             addMessage(message, true);
             userInput.value = '';
             sendBtn.disabled = true;
-            
-            const isLangChain = langchainToggle.checked;
-            const processingMsg = isLangChain 
-                ? '<div class="debug-entry"><div class="debug-step">⏳ Processing with LangChain...</div><div class="debug-message">Waiting for Ollama LLM (first request may take 30-60s)</div></div>'
-                : '<div class="debug-entry"><div class="debug-step">⏳ Processing...</div></div>';
-            debugContent.innerHTML = processingMsg;
-            
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+
+            const flowLabel = tokenFlow === 'obo' ? 'OBO' : 'Autonomous';
+            const llmLabel = llmMode === 'ollama' ? 'Ollama' : 'Direct';
+            const isOllama = llmMode === 'ollama';
+            debugContent.innerHTML = '<div class="debug-entry' + (tokenFlow==='obo'?' obo':'') + '"><div class="debug-step">&#x23F3; Processing: ' + llmLabel + ' + ' + flowLabel + '...</div>'
+                + (isOllama ? '<div class="debug-message">Ollama is thinking &mdash; local models are slower than cloud LLMs</div>' : '')
+                + '</div>';
+
             try {
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), isLangChain ? 120000 : 30000);
-                
+                const timeoutId = setTimeout(() => controller.abort(), isOllama ? 120000 : 30000);
+
+                const body = {
+                    message: message,
+                    use_langchain: isOllama,
+                    token_flow: tokenFlow,
+                };
+                if (tokenFlow === 'obo' && currentUserToken) {
+                    body.user_token = currentUserToken;
+                }
+
                 const response = await fetch('/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        message: message,
-                        use_langchain: isLangChain
-                    }),
+                    body: JSON.stringify(body),
                     signal: controller.signal
                 });
                 clearTimeout(timeoutId);
-                
+
                 const data = await response.json();
-                
-                let agentInfo = data.agent_type === 'langchain' 
-                    ? '<br><small><em>🔗 Response from LangChain Agent</em></small>'
-                    : '<br><small><em>⚡ Direct tool call (LLM skipped)</em></small>';
-                
-                addMessage(data.response + agentInfo, false);
-                
-                if (data.debug) {
-                    updateDebug(data.debug);
+
+                if (data.error) {
+                    addMessage('Error: ' + data.error, false);
+                } else {
+                    const flowBadge = (data.token_flow === 'obo' || tokenFlow === 'obo')
+                        ? '<br><small><em>&#x1F504; OBO Flow (On-Behalf-Of ' + (currentAccount ? currentAccount.name : 'user') + ')</em></small>'
+                        : '<br><small><em>&#x1F512; Autonomous Agent</em></small>';
+                    const llmBadge = data.agent_type === 'langchain'
+                        ? ' &#x1F4BB; Ollama'
+                        : ' &#x26A1; Direct';
+                    addMessage(data.response + flowBadge + '<small><em>' + llmBadge + '</em></small>', false);
+
+                    if (data.debug) {
+                        updateDebug(data.debug);
+                    }
                 }
             } catch (error) {
                 if (error.name === 'AbortError') {
@@ -347,13 +694,48 @@
                     addMessage('Error: ' + error.message, false);
                 }
             }
-            
+
             sendBtn.disabled = false;
         }
-        
+
+        // ==============================
+        // Token Cards (inline in debug flow)
+        // ==============================
+        const highlightClaims = [
+            'aud', 'sub', 'idtyp', 'appid', 'azp', 'name', 'upn', 'preferred_username',
+            'scp', 'roles', 'wids',
+            'xms_act_fct', 'xms_sub_fct', 'xms_par_app_azp', 'xms_frd'
+        ];
+
+        function renderClaimsHtml(claims, hlClass) {
+            if (!claims) return '<em style="color:rgba(255,255,255,0.4)">Not available</em>';
+            let html = '';
+            for (const [key, val] of Object.entries(claims)) {
+                const isHL = highlightClaims.includes(key);
+                const valClass = isHL ? 'claim-val ' + hlClass : 'claim-val';
+                const displayVal = (val === 'N/A' || val === null || val === undefined)
+                    ? '<span style="opacity:0.3">\u2014</span>'
+                    : (typeof val === 'object' ? JSON.stringify(val) : String(val));
+                html += '<div class="token-claim"><span class="claim-key">' + key + '</span><span class="' + valClass + '">' + displayVal + '</span></div>';
+            }
+            return html;
+        }
+
+        function makeTokenCard(title, claims, cssClass, hlClass) {
+            return '<div class="token-card ' + cssClass + '" style="margin-bottom:10px;">'
+                + '<div class="token-card-title">' + title + '</div>'
+                + renderClaimsHtml(claims, hlClass)
+                + '</div>';
+        }
+
         userInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') sendMessage();
         });
     </script>
+    <footer style="text-align:center; padding:16px 0 8px; color:#888; font-size:13px;">
+        <a href="https://github.com/razi-rais/3P-Agent-ID-Demo" target="_blank" style="color:#58a6ff; text-decoration:none;">
+            &#128279; View source code on GitHub
+        </a>
+    </footer>
 </body>
 </html>
