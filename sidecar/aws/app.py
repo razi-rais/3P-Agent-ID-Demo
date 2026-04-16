@@ -32,7 +32,7 @@ except ImportError as e:
     print("Running in direct mode only")
 
 app = Flask(__name__)
-CORS(app)
+CORS(app)  # ⚠️  DEMO ONLY — allows all origins. Restrict in production.
 
 # Configuration
 SIDECAR_URL = os.environ.get('SIDECAR_URL', 'http://sidecar:5000')

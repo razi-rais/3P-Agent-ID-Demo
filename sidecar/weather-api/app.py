@@ -12,7 +12,7 @@ from datetime import datetime
 from functools import wraps
 
 app = Flask(__name__)
-CORS(app)
+CORS(app)  # ⚠️  DEMO ONLY — allows all origins. Restrict in production.
 
 # City coordinates for Open-Meteo API (lat, lon)
 CITY_COORDS = {
