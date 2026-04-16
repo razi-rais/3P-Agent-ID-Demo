@@ -11,7 +11,7 @@ import time
 from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
 
-# Rate limiting
+# ⚠️  DEMO ONLY — global rate limiter. Not per-session; suitable for single-user demos only.
 last_vertexai_call_time = 0
 VERTEXAI_RATE_LIMIT_SECONDS = 20
 
@@ -42,7 +42,7 @@ GCP_PROJECT_ID = os.environ.get('GCP_PROJECT_ID', '')
 GCP_LOCATION = os.environ.get('GCP_LOCATION', 'us-central1')
 VERTEXAI_MODEL_ID = os.environ.get('VERTEXAI_MODEL_ID', 'gemini-1.0-pro-002')
 
-# Store debug info (global for simplicity)
+# ⚠️  DEMO ONLY — global state. Not thread-safe; suitable for single-user demos only.
 debug_logs = []
 
 

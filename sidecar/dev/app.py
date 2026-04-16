@@ -51,7 +51,7 @@ AGENT_APP_ID = os.environ.get('AGENT_APP_ID', '')
 OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://ollama:11434')
 OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'llama3.2')
 
-# Store debug info (global for simplicity)
+# ⚠️  DEMO ONLY — global state. Not thread-safe; suitable for single-user demos only.
 debug_logs = []
 
 

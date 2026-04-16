@@ -11,7 +11,7 @@ import time
 from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
 
-# Rate limiting
+# ⚠️  DEMO ONLY — global rate limiter. Not per-session; suitable for single-user demos only.
 last_bedrock_call_time = 0
 BEDROCK_RATE_LIMIT_SECONDS = 20
 
@@ -44,7 +44,7 @@ CLIENT_SPA_APP_ID = os.environ.get('CLIENT_SPA_APP_ID', '')
 AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
 BEDROCK_MODEL_ID = os.environ.get('BEDROCK_MODEL_ID', 'anthropic.claude-3-sonnet-20240229-v1:0')
 
-# Store debug info (global for simplicity)
+# ⚠️  DEMO ONLY — global state. Not thread-safe; suitable for single-user demos only.
 debug_logs = []
 
 
