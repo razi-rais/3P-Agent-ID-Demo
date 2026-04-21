@@ -11,8 +11,11 @@
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            min-height: 100vh;
+            height: 100vh;
             color: #fff;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
         .container {
             max-width: 1400px;
@@ -21,7 +24,8 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 20px;
-            height: 100vh;
+            flex: 1;
+            min-height: 0;
         }
         .panel {
             background: rgba(255,255,255,0.05);
@@ -29,6 +33,8 @@
             padding: 20px;
             display: flex;
             flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
         }
         .panel-header {
             display: flex;
@@ -112,9 +118,29 @@
         .debug-data {
             background: rgba(0,0,0,0.4);
             padding: 8px; border-radius: 4px;
-            overflow-x: auto; white-space: pre-wrap;
-            color: #a8e6cf; font-size: 0.75rem;
+            overflow-x: auto;
+            font-size: 0.75rem;
         }
+        .debug-data .data-row {
+            display: flex;
+            padding: 2px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .debug-data .data-row:last-child { border-bottom: none; }
+        .debug-data .data-key {
+            color: rgba(255,255,255,0.45);
+            min-width: 120px;
+            flex-shrink: 0;
+            font-size: 0.72rem;
+        }
+        .debug-data .data-val {
+            color: #a8e6cf;
+            word-break: break-all;
+            font-size: 0.72rem;
+        }
+        .debug-data .data-val.pass { color: #2ecc71; font-weight: 600; }
+        .debug-data .data-val.warn { color: #f5a623; }
+        .debug-data .data-val.info { color: rgba(255,255,255,0.8); }
         .status-bar {
             display: flex; gap: 15px;
             padding: 8px 10px; margin-bottom: 8px;
@@ -255,6 +281,24 @@
         .claim-val.highlight { color: #fdcb6e; font-weight: 600; }
         .claim-val.highlight-purple { color: #e056fd; font-weight: 600; }
         .claim-val.highlight-green { color: #2ecc71; font-weight: 600; }
+        .identity-info {
+            display: flex; flex-wrap: wrap; gap: 6px 16px;
+            padding: 6px 10px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 6px;
+            margin-bottom: 8px;
+            font-family: 'Monaco','Menlo',monospace;
+            font-size: 0.68rem;
+        }
+        .identity-info .id-label {
+            color: rgba(255,255,255,0.45);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .identity-info .id-value {
+            color: rgba(255,255,255,0.85);
+            user-select: all;
+        }
         @media (max-width: 900px) {
             .container { grid-template-columns: 1fr; }
             .token-columns { grid-template-columns: 1fr; }
@@ -269,10 +313,15 @@
                 <h2>3P Agent Identity Demo - AWS Bedrock</h2>
             </div>
 
+            <div class="identity-info" id="identityInfo">
+                <span><span class="id-label">Tenant ID: </span><span class="id-value" id="dispTenantId">&hellip;</span></span>
+                <span><span class="id-label">Agent ID: </span><span class="id-value" id="dispAgentId">&hellip;</span></span>
+            </div>
+
             <!-- Two-row mode selector -->
             <div class="controls-group">
                 <div class="control-row">
-                    <div class="control-label">Mode</div>
+                    <div class="control-label">Execution Mode</div>
                     <button class="mode-btn active" data-group="llm" data-mode="direct" onclick="setLlmMode('direct')">
                         &#x26A1; Direct
                         <span class="mode-desc">Skip LLM, call tool</span>
@@ -283,7 +332,7 @@
                     </button>
                 </div>
                 <div class="control-row">
-                    <div class="control-label">Identity</div>
+                    <div class="control-label">Identity Flow</div>
                     <button class="mode-btn active" data-group="token" data-mode="autonomous" onclick="setTokenFlow('autonomous')">
                         &#x1F512; Autonomous
                         <span class="mode-desc">Agent acts alone</span>
@@ -348,7 +397,7 @@
                 </div>
             </div>
             <div class="input-area">
-                <input type="text" id="userInput" placeholder="Ask about the weather in any city..." />
+                <input type="text" id="userInput" value="Weather in Dallas?" placeholder="Ask about the weather in any city..." />
                 <button id="sendBtn" onclick="sendMessage()">Send</button>
             </div>
         </div>
@@ -438,6 +487,9 @@
             try {
                 const resp = await fetch('/api/config');
                 msalConfig = await resp.json();
+                // Populate identity info bar
+                if (msalConfig.tenant_id) document.getElementById('dispTenantId').textContent = msalConfig.tenant_id;
+                if (msalConfig.agent_app_id) document.getElementById('dispAgentId').textContent = msalConfig.agent_app_id;
                 const msalClientId = msalConfig.client_spa_app_id || msalConfig.blueprint_app_id;
                 if (!msalClientId || !msalConfig.tenant_id) {
                     console.warn('MSAL config incomplete — OBO sign-in disabled');
@@ -537,6 +589,24 @@
         // ==============================
         // Chat helpers
         // ==============================
+        function renderDataBlock(data) {
+            let html = '<div class="debug-data">';
+            for (const [key, val] of Object.entries(data)) {
+                const label = key.replace(/^\d+_/, '').replace(/_/g, ' ');
+                const strVal = typeof val === 'object' ? JSON.stringify(val) : String(val);
+                let cls = 'data-val';
+                if (strVal.startsWith('PASS')) cls += ' pass';
+                else if (strVal.startsWith('CHECK') || strVal.startsWith('NONE') || strVal.includes('⚠')) cls += ' warn';
+                else cls += ' info';
+                html += '<div class="data-row">'
+                    + '<span class="data-key">' + label + '</span>'
+                    + '<span class="' + cls + '">' + strVal + '</span>'
+                    + '</div>';
+            }
+            html += '</div>';
+            return html;
+        }
+
         function addMessage(content, isUser) {
             const div = document.createElement('div');
             div.className = 'message ' + (isUser ? 'user' : 'assistant');
@@ -555,9 +625,8 @@
                 if (entry.step.startsWith('OBO') || entry.step.includes('OBO')) entryClass += ' obo';
                 div.className = entryClass;
 
-                let icon = '&#x2705;';
-                if (entry.step.includes('ERROR')) icon = '&#x274C;';
-                else if (entry.step.includes('OBO')) icon = '&#x1F504;';
+                let icon = '&#x2713;';  // ✓ for all steps
+                if (entry.step.includes('ERROR')) icon = '&#x2717;';  // ✗
 
                 let html = '<div class="debug-step">' + icon + ' ' + entry.step + '</div>';
                 html += '<div class="debug-message">' + entry.message + '</div>';
@@ -577,7 +646,7 @@
                         + '<a href="https://learn.microsoft.com/en-us/entra/agent-id/identity-platform/agent-on-behalf-of-oauth-flow" target="_blank" style="color:#667eea; text-decoration:none;">Agent OBO flow</a>'
                         + '</div>';
                 } else if (entry.data) {
-                    html += '<div class="debug-data">' + JSON.stringify(entry.data, null, 2) + '</div>';
+                    html += renderDataBlock(entry.data);
                 }
                 div.innerHTML = html;
                 debugContent.appendChild(div);
