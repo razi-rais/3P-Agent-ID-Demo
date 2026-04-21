@@ -339,7 +339,7 @@ def process_with_langchain(user_query: str):
     
     try:
         agent = create_weather_agent()
-        log_debug("0. AGENT READY", f"LangChain agent created with Ollama ({OLLAMA_MODEL})")
+        log_debug("0.C AGENT READY", f"LangChain agent created with Ollama ({OLLAMA_MODEL})")
         
         # LangGraph ReAct agent — keep prompt minimal; small models (qwen2.5:1.5b)
         # are sensitive to extra instructions and may skip the tool call.

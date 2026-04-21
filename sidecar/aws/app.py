@@ -91,7 +91,7 @@ def get_agent_token():
     
     try:
         url = f"{SIDECAR_URL}/AuthorizationHeaderUnauthenticated/graph-app?AgentIdentity={AGENT_APP_ID}"
-        log_debug("2.B REQUEST URL", f"Sidecar URL: {url}")
+        log_debug("2.B SIDECAR CALL", f"Sidecar URL: {url}")
         
         response = requests.get(url, timeout=30, headers={"Host": "localhost"})
         response.raise_for_status()
@@ -295,7 +295,7 @@ def get_weather_data(city: str, user_token=None) -> str:
     """
     is_obo = user_token is not None
     flow_label = "OBO" if is_obo else "Autonomous"
-    log_debug("1. TOOL CALLED", f"Weather function called for city: {city} (flow: {flow_label})")
+    log_debug("1.B TOOL CALL", f"Weather function called for city: {city} (flow: {flow_label})")
     
     # Step 1: Get Agent Identity token from sidecar
     if is_obo:
@@ -393,8 +393,8 @@ def process_with_langchain(user_query: str):
         print(f"[AWS] Rate limit: waiting {wait_time:.1f} seconds...")
         time.sleep(wait_time)
     
-    log_debug("0. START", f"User query: {user_query}")
-    log_debug("0. BEDROCK", f"Sending query to AWS Bedrock (model: {BEDROCK_MODEL_ID})")
+    log_debug("0.A START", f"User query: {user_query}")
+    log_debug("0.B BEDROCK", f"Sending query to AWS Bedrock (model: {BEDROCK_MODEL_ID})")
     
     print(f"\n{'='*60}")
     print(f"[AWS] Processing query with Bedrock LLM")
@@ -405,7 +405,7 @@ def process_with_langchain(user_query: str):
     
     try:
         agent = create_weather_agent()
-        log_debug("0. AGENT READY", f"LangChain agent created with AWS Bedrock ({BEDROCK_MODEL_ID})")
+        log_debug("0.C AGENT READY", f"LangChain agent created with AWS Bedrock ({BEDROCK_MODEL_ID})")
         
         print(f"[AWS] Invoking Bedrock API...")
         
@@ -523,17 +523,17 @@ def process_without_llm(user_query: str, user_token=None):
     If user_token is provided, uses OBO flow."""
     is_obo = user_token is not None
     flow_label = "OBO" if is_obo else "Autonomous"
-    log_debug("0. START", f"Processing query (Direct + {flow_label}): {user_query}")
+    log_debug("0.A START", f"Processing query (Direct + {flow_label}): {user_query}")
     
     if is_obo:
-        log_debug("0. OBO MODE", "User token provided — will use authenticated sidecar endpoint", {
+        log_debug("0.B OBO MODE", "User token provided — will use authenticated sidecar endpoint", {
             "endpoint": "/AuthorizationHeader/graph (requires Bearer token)",
             "docs": "https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/endpoints"
         })
     
     city = _extract_city(user_query)
     
-    log_debug("1. DIRECT CALL", f"Calling weather function directly for: {city} (flow: {flow_label})")
+    log_debug("1.A DIRECT CALL", f"Calling weather function directly for: {city} (flow: {flow_label})")
     weather_result = get_weather_data(city, user_token=user_token)
     
     flow_badge = "🔄 OBO" if is_obo else "⚡ Autonomous"
