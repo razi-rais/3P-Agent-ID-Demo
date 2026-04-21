@@ -13,7 +13,7 @@ A visual, hands-on demonstration of how AI agents use **Microsoft Entra Agent ID
 This sample deliberately uses the **official [Microsoft Entra SDK auth sidecar](https://mcr.microsoft.com/en-us/product/entra-sdk/auth-sidecar/about)** container (`mcr.microsoft.com/entra-sdk/auth-sidecar`) rather than rolling our own token client. Here's why:
 
 - **Certified implementation of the OAuth2 flows you actually need** — client credentials, OBO, and federated credentials — written and maintained by the identity team.
-- **Your agent code stays dumb.** The LLM agent never handles `client_id`, `client_secret`, certificates, JWKS, token caching, or OBO exchange. It just asks the sidecar: *"Give me an authorization header for this downstream API."*
+- **Your agent code stays decoupled from token exchanges.** The LLM agent never handles `client_id`, `client_secret`, certificates, JWKS, token caching, or OBO exchange. It just asks the sidecar: *"Give me an authorization header for this downstream API."*
 - **Swap credentials without touching agent code.** `ClientSecret` for dev, `SignedAssertionFromManagedIdentity` for production on Azure — change one env var, no code changes.
 - **Token caching, refresh, and expiry are handled for you.** No MSAL integration to debug.
 - **Security boundary is explicit.** The sidecar has no host port. Only services inside the Docker network can request tokens — your agent, not your browser, not random processes on the host.
