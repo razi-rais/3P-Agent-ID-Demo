@@ -274,10 +274,11 @@ Works on **macOS**, **Linux**, and **Windows 10/11**.
 | Need | macOS | Linux | Windows |
 |---|---|---|---|
 | Docker | Docker Desktop | Docker Engine + Compose v2 | Docker Desktop (WSL 2 backend recommended) |
-| Shell for `.sh` helpers | Terminal (bash/zsh) | bash | **WSL** or **Git Bash** (one of the OBO setup helpers is bash-only) |
 | PowerShell 7+ | `brew install --cask powershell` | [install docs](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-linux) | built-in (or install PS 7+) |
 | Azure CLI | `brew install azure-cli` | [install docs](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-linux) | `winget install -e Microsoft.AzureCLI` |
 | Python 3.11+ (only if you run tests) | `brew install python@3.11` | distro package | `winget install -e Python.Python.3.11` |
+
+All helper scripts ship in both **bash** (`.sh`) and **PowerShell** (`.ps1`) flavours — pick whichever matches your shell; no WSL required on Windows.
 
 You also need a **registered Agent ID in Microsoft Entra** — the repo-root PowerShell workflow creates all of that (Blueprint app with client secret, Agent ID, and — via the helper scripts — the SPA app used for OBO sign-in). See [§7.2](#72-first-time-setup--create-the-entra-objects).
 
@@ -354,7 +355,7 @@ Follow the PowerShell workflow in the **[repo root README](../../README.md)** (w
 
 **b. Create the SPA app + wire up OBO** (required for OBO flow)
 
-Two helper scripts are provided. The SPA-app creation script is bash-only; on Windows run it from **WSL** or **Git Bash**.
+Two helper scripts are provided in both bash and PowerShell flavours — use whichever matches your shell.
 
 **bash (macOS / Linux / WSL / Git Bash)**
 
@@ -367,13 +368,14 @@ bash ../../scripts/setup-obo-client-app.sh
 bash ../../scripts/setup-obo-blueprint.sh
 ```
 
-**PowerShell (Windows — native)**
+**PowerShell (Windows — native, also works on macOS/Linux with PS 7+)**
 
 ```powershell
-# Step 1 — run the SPA-app creation from Git Bash or WSL (no .ps1 equivalent):
-#   bash ../../scripts/setup-obo-client-app.sh
-#
-# Step 2 — back in PowerShell, wire up OBO on the Blueprint:
+# 1. Create the SPA app registration for MSAL.js browser sign-in
+pwsh ../../scripts/setup-obo-client-app.ps1
+# → prints CLIENT_SPA_APP_ID (and writes it to .env)
+
+# 2. Wire up the OBO scope + admin consent on the Blueprint
 pwsh ../../scripts/setup-obo-blueprint.ps1 `
     -TenantId        '<TENANT_ID>' `
     -BlueprintAppId  '<BLUEPRINT_APP_ID>' `
