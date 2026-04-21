@@ -145,6 +145,9 @@ The sidecar sits between your agent and Microsoft Entra ID. The agent **never** 
 
 No user, no sign-in. The agent is authenticated as itself.
 
+<!-- TODO: add rendered image of the autonomous sequence diagram -->
+![Autonomous flow sequence diagram](docs/images/sequence-autonomous.png)
+
 <details>
 <summary><b>📊 Show sequence diagram — Autonomous flow</b></summary>
 
@@ -188,6 +191,9 @@ sequenceDiagram
 ### 4.2 OBO flow (on-behalf-of a signed-in user)
 
 The agent acts for a specific user. The sidecar performs a 3-step exchange and the downstream API sees a *delegated* token.
+
+<!-- TODO: add rendered image of the OBO sequence diagram -->
+![OBO flow sequence diagram](docs/images/sequence-obo.png)
 
 <details>
 <summary><b>📊 Show sequence diagram — OBO flow</b></summary>
