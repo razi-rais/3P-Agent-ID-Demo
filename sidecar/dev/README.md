@@ -2,6 +2,8 @@
 
 A visual demonstration of how AI agents use **Microsoft Entra Agent ID** to securely call downstream APIs. This edition runs entirely on your laptop with a local LLM via [Ollama](https://ollama.com) — no cloud LLM provider required.
 
+> **TODO:** Screenshots of the UI (chat view, token trace panel, OBO sign-in) need to be captured and added to `docs/images/` before publishing.
+
 > **New to Agent ID?** Start with the [Sidecar Guide](../SIDECAR-GUIDE.md) for the fundamentals. This sample builds on that with a complete end-to-end demo.
 
 ---
@@ -224,11 +226,9 @@ sidecar/dev/
 ├── .env.example         # Template — copy to .env
 ├── templates/
 │   └── index.html       # Chat UI, MSAL.js, token trace panel
-├── tests/
-│   ├── __init__.py
-│   └── test_app.py      # 28 pytest tests
-└── docs/
-    └── images/          # Screenshots
+└── tests/
+    ├── __init__.py
+    └── test_app.py      # 28 pytest tests
 ```
 
 ---
