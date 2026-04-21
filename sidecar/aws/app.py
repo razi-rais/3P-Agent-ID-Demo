@@ -24,7 +24,7 @@ try:
     from langchain_aws import ChatBedrock
     from langchain_core.tools import tool
     from langchain_core.prompts import ChatPromptTemplate
-    from langgraph.prebuilt import create_react_agent
+    from langchain.agents import create_agent
     LANGCHAIN_AVAILABLE = True
     print("LangChain with AWS Bedrock loaded successfully")
 except ImportError as e:
@@ -374,15 +374,10 @@ def create_weather_agent():
     
     # Define tools
     tools = [get_weather]
-    
-    # Don't force tool usage - let Claude decide naturally
-    # tool_choice="any" was causing loops
-    llm_with_tools = llm.bind_tools(tools)
-    
-    # Use LangGraph ReAct agent
-    from langgraph.prebuilt import create_react_agent
-    agent = create_react_agent(llm_with_tools, tools)
-    
+
+    # Use LangChain 1.0+ agent API
+    agent = create_agent(llm, tools)
+
     return agent
 
 
