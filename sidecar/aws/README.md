@@ -1,619 +1,503 @@
-# 3P Agent Identity Demo - AWS Bedrock Edition
+# AWS Bedrock Sidecar (Cloud LLM Edition)
 
-A demonstration of how AI agents use **Microsoft Entra Agent Identity** tokens to securely call APIs, powered by **AWS Bedrock** instead of Ollama.
+A visual, hands-on demonstration of how AI agents use **Microsoft Entra Agent ID** — via the official **Microsoft Entra SDK auth sidecar** — to securely call downstream APIs. This variant uses **AWS Bedrock** (Anthropic Claude) as the LLM, proving the sidecar pattern works identically across clouds.
 
-## What's Different from the Ollama Version?
+> **Looking for the local-only version?** See [`sidecar/dev`](../dev/README.md) — same architecture, runs entirely offline with Ollama.
+>
+> **New to Agent ID?** Start with the [Sidecar Guide](../SIDECAR-GUIDE.md) for the fundamentals.
 
-- **AWS Bedrock LLM** instead of local Ollama
-- Uses **Claude 3 Sonnet** (or any Bedrock model)
-- Requires AWS credentials
-- Runs on port **3001** (instead of 3000)
-- Separate docker-compose file for independent deployment
+---
 
-## Prerequisites
+## 1. Why the Microsoft Entra SDK sidecar?
 
-1. **Microsoft Entra Agent Identity Setup**
-   - Complete the [Main README](../../README.md) setup
-   - Have your Blueprint and Agent Identity created
-   - Have `.env` file configured with Agent ID credentials
+This sample deliberately uses the **official [Microsoft Entra SDK auth sidecar](https://mcr.microsoft.com/en-us/product/entra-sdk/auth-sidecar/about)** container (`mcr.microsoft.com/entra-sdk/auth-sidecar`) rather than rolling our own token client. Here's why:
 
-2. **AWS Account and Credentials**
-   - AWS account with Bedrock access
-   - AWS Access Key ID and Secret Access Key
-   - Bedrock model access enabled in your region
+- **Interoperable across any cloud or on-prem** — the same container image runs identically on Azure, AWS, GCP, Kubernetes, or a laptop. This sample puts it next to **AWS Bedrock** to make the cross-cloud story concrete: the LLM is in AWS, identity is in Microsoft Entra, and neither side cares.
+- **Your agent code stays decoupled from token exchanges.** The agent never handles `client_id`, `client_secret`, certificates, JWKS, token caching, or OBO exchange. It just asks the sidecar: *"Give me an authorization header for this downstream API."*
+- **Swap credentials without touching agent code.** `ClientSecret` for dev, `SignedAssertionFromManagedIdentity` for production on Azure — change one env var, no code changes.
+- **Token caching, refresh, and expiry are handled for you.** No MSAL integration to debug.
+- **Security boundary is explicit.** The sidecar has no host port. Only services inside the Docker network can request tokens — your agent, not your browser, not random processes on the host.
 
-## Quick Start
+### What the agent does vs what the sidecar does
 
-### 1. Configure AWS Credentials
+| Agent (your code) | Sidecar (Microsoft Entra SDK) |
+|---|---|
+| Decide *when* to call the API | Acquire and cache the right token |
+| Build the HTTP request | Perform client-credentials / OBO exchange |
+| Pass through user token for OBO | Validate & forward user assertion |
+| Handle business logic | Talk to `login.microsoftonline.com` |
 
-Add to your `.env` file in the `sidecar` directory:
+---
 
-```env
-# Existing Agent Identity credentials
-TENANT_ID=your-tenant-id
-BLUEPRINT_APP_ID=your-blueprint-app-id
-BLUEPRINT_CLIENT_SECRET=your-secret
-AGENT_CLIENT_ID=your-agent-app-id
+## 2. What this sample demonstrates
 
-# New AWS Bedrock credentials
-AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=your-aws-access-key
-AWS_SECRET_ACCESS_KEY=your-aws-secret-key
-BEDROCK_MODEL_ID=anthropic.claude-3-sonnet-20240229-v1:0
+- **Two execution modes**: `Direct` (skip LLM, fast demo of token flow) vs `Bedrock` (LangChain + Claude makes the tool-call decision)
+- **Two identity flows**: `Autonomous` (app-only token) vs `OBO` (acts on behalf of a signed-in user)
+- **Full token lifecycle**: Tc (user token) → T1 (blueprint app token) → TR (agent token) → downstream API
+- **JWT validation end-to-end**: The weather API verifies signature (JWKS / RS256), issuer, and expiry on every request
+- **LangGraph ReAct agent**: Modern LangChain 1.x pattern with `langchain.agents.create_agent`
+- **Three production-ready AWS auth tiers** documented: temporary STS creds, Bedrock API keys, and OIDC federation (no secrets) — see [§5](#5-aws-authentication--pick-the-right-tier)
+
+### Modes and flows (2×2 matrix)
+
+|                     | **Autonomous** (app-only) | **OBO** (on behalf of user) |
+|---------------------|----------------------------|------------------------------|
+| **Direct** (no LLM) | Fast demo path. TR token fetched, weather API called directly. | Same, but uses the authenticated sidecar endpoint with Tc. |
+| **Bedrock + LangChain** | LangGraph ReAct agent decides when to call `get_weather`. | Same, agent passes Tc through when the tool runs. |
+
+---
+
+## 3. Architecture
+
+The sidecar sits between your agent and Microsoft Entra ID. The agent **never** talks to Entra directly, and it **never** sees a credential — it just asks the sidecar for an `Authorization:` header for a named downstream API. Bedrock is just the LLM provider; identity is owned by the sidecar.
+
+### 3.1 High-level flow (the 30-second view)
+
+```
+   ┌──────────┐  ask     ┌──────────┐  get token   ┌──────────┐
+   │  Agent   │────────▶ │ Sidecar  │ ───────────▶ │  Entra   │
+   │ (Flask + │          │ (Entra   │ ◀─────────── │   ID     │
+   │ Bedrock) │◀──────── │   SDK)   │   TR token   └──────────┘
+   └────┬─────┘ header   └──────────┘
+        │
+        │ call API with Bearer TR
+        ▼
+   ┌──────────┐
+   │ Weather  │   validates TR, returns data
+   │   API    │
+   └──────────┘
+
+   ┌──────────────┐   LLM inference (separate concern)
+   │ AWS Bedrock  │ ◀── agent calls this for reasoning
+   └──────────────┘
 ```
 
-**Note:** Bedrock models are now automatically enabled when first invoked. No manual activation needed! For Anthropic models, first-time users may be prompted to submit brief use case details.
+**Three identity moving parts, one rule:** the **Agent** focuses on reasoning, the **Sidecar** owns all identity/credential work, the **downstream API** just validates the token it's given. The LLM (Bedrock) is orthogonal — it never touches identity.
 
-### 2. Start the AWS Bedrock Demo
+### 3.2 Detailed architecture
 
-From the `sidecar` directory:
+```
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                     agent-network-aws (Docker bridge)                         │
+│                                                                               │
+│  You (browser)                                                                │
+│   http://localhost:3001 ────┐                                                 │
+│                             ▼                                                 │
+│   ┌──────────────────────────────────┐    AWS SDK   ┌─────────────────┐       │
+│   │  llm-agent-aws  (Flask + UI)     │ ───────────▶ │  AWS Bedrock    │       │
+│   │  :3000 → host :3001              │ ◀─────────── │  Claude (Haiku) │       │
+│   │                                  │   inference  └─────────────────┘       │
+│   │  ① Receive user query            │                                        │
+│   │  ② LangGraph ReAct agent runs    │                                        │
+│   │  ③ Tool needs to call weather API│                                        │
+│   │     → ask sidecar for a token    │                                        │
+│   └──────────────┬───────────────────┘                                        │
+│                  │ ④ GET /AuthorizationHeader...                              │
+│                  │    ?AgentIdentity={agentId}                                │
+│                  │    (Bearer Tc if OBO)                                      │
+│                  ▼                                                            │
+│   ┌──────────────────────────────────┐    ⑤ OAuth2  ┌─────────────────┐      │
+│   │  agent-id-sidecar-aws            │ ───────────▶ │  Microsoft      │      │
+│   │  Microsoft Entra SDK             │              │  Entra ID       │      │
+│   │  (official MS container image)   │ ◀─────────── │  login.micro... │      │
+│   │  NO host port — network only     │   ⑥ T1 / TR  └─────────────────┘      │
+│   └──────────────┬───────────────────┘                                        │
+│                  │ ⑦ Authorization: Bearer TR                                 │
+│                  ▼                                                            │
+│   ┌──────────────────────────────────┐                                        │
+│   │  weather-api-aws                 │                                        │
+│   │  ⑧ Validate TR (JWKS, RS256,     │                                        │
+│   │    issuer, expiry, audience)     │                                        │
+│   │  ⑨ Return weather JSON           │                                        │
+│   └──────────────────────────────────┘                                        │
+└───────────────────────────────────────────────────────────────────────────────┘
+```
+
+**The key insight:** steps ⑤ and ⑥ are the *only* place an Entra credential is ever handled, and that happens inside the sidecar on a network the agent can't reach from outside. AWS credentials are similarly isolated — your agent code at step ③ does `requests.get(sidecar_url)` (for Entra) and `boto3.client("bedrock-runtime")` (for AWS); no MSAL, no certificates, no AWS keys hard-coded.
+
+### Token flow (Microsoft Entra side)
+
+| Token | Issued to | When | How |
+|---|---|---|---|
+| **Tc** | Signed-in user | OBO flow only | MSAL.js in the browser |
+| **T1** | Blueprint app | Both flows | Sidecar (client credentials) |
+| **TR** | Agent (downstream API) | Both flows | Sidecar — app-only (autonomous) or OBO exchange |
+
+### What the Identity Trace panel shows
+
+```
+✓ 0.A START               User query received
+✓ 0.B BEDROCK             Sending to AWS Bedrock
+✓ 0.C AGENT READY         LangChain agent created
+✓ 1.B TOOL CALL           LLM decides to call get_weather
+✓ 2.A TOKEN REQUEST       Request Agent Identity token
+✓ 2.B SIDECAR CALL        Sidecar URL with AgentIdentity=…
+✓ 2.C TOKEN RECEIVED      TR JWT received (decoded claims shown)
+✓ 3.A API CALL            Calling Weather API
+✓ 3.B API URL             Weather endpoint + Authorization header
+✓ 3.C API RESPONSE        Weather data received (full JSON)
+✓ 4.  TOOL RESULT         Tool execution complete
+✓ 5.  COMPLETE            Response sent to user
+```
+
+For OBO, you'll additionally see **Tc** (user token from MSAL) and **T1** (blueprint app-only token) cards before the **TR**.
+
+---
+
+## 4. Prerequisites
+
+Works on **macOS**, **Linux**, and **Windows 10/11**.
+
+| Need | macOS | Linux | Windows |
+|---|---|---|---|
+| Docker | Docker Desktop | Docker Engine + Compose v2 | Docker Desktop (WSL 2 backend recommended) |
+| PowerShell 7+ | `brew install --cask powershell` | [install docs](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-linux) | built-in (or install PS 7+) |
+| Azure CLI | `brew install azure-cli` | [install docs](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-linux) | `winget install -e Microsoft.AzureCLI` |
+| AWS CLI v2 | `brew install awscli` | [install docs](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) | `winget install -e Amazon.AWSCLI` |
+| Python 3.11+ (only if you run tests) | `brew install python@3.11` | distro package | `winget install -e Python.Python.3.11` |
+
+You also need:
+
+1. **A registered Agent ID in Microsoft Entra** — the repo-root PowerShell workflow creates the Blueprint app, client secret, and Agent ID. See [§6.2](#62-first-time-setup--create-the-entra-objects).
+2. **An AWS account with Bedrock model access** — by default this sample uses `us.anthropic.claude-3-haiku-20240307-v1:0`. Enable model access in the AWS Bedrock console (*Model access → Manage model access → Anthropic Claude 3 Haiku → Save*). Approval is usually instant.
+3. **AWS credentials** for one of the three tiers in [§5](#5-aws-authentication--pick-the-right-tier).
+
+---
+
+## 5. AWS authentication — pick the right tier
+
+The sample supports three ways to authenticate to Bedrock. Pick based on where you're running it.
+
+| Tier | Use when | What you set | Lifetime | Secrets at rest? |
+|---|---|---|---|---|
+| **A. Temporary STS creds** | Local dev, your laptop, your AWS SSO | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` + `AWS_SESSION_TOKEN` in `.env` | ~1 hour | Yes (in gitignored `.env`) |
+| **B. Bedrock API key** | Public demos, workshops, hands-on labs | `AWS_BEARER_TOKEN_BEDROCK` in `.env` | Long- or short-term, scoped to Bedrock only | Yes (in gitignored `.env`) |
+| **C. OIDC federation** | **Production on Azure App Service** | Platform App Settings (no `.env`); `AWS_ROLE_ARN` + `AWS_WEB_IDENTITY_TOKEN_FILE` | Auto-rotated by AWS STS | **No** — zero stored secrets |
+
+> **Production deployment instructions:** see **[`DEPLOY-AZURE-APP-SERVICE.md`](./DEPLOY-AZURE-APP-SERVICE.md)** for the full step-by-step guide using tier (C) — Azure Managed Identity → AWS IAM role via OIDC federation, with no AWS keys ever stored anywhere.
+
+`.env.example` documents all three tiers with side-by-side examples.
+
+---
+
+## 6. Run it and open the UI
+
+> **Supported hosts:** macOS, Linux, and Windows 10/11. Every command below is given for **bash** (macOS / Linux / WSL / Git Bash) and **PowerShell 7+** (Windows). Pick the one that matches your shell.
+
+### 6.1 Do you already have an `.env` from a previous run?
+
+If **yes** — you've already run the tenant setup once and have `sidecar/aws/.env` populated with `TENANT_ID`, `BLUEPRINT_APP_ID`, `BLUEPRINT_CLIENT_SECRET`, `AGENT_CLIENT_ID`, and (for OBO) `CLIENT_SPA_APP_ID` — **skip to [6.3 Start the stack](#63-start-the-stack)**.
+
+> **Why?** All the Entra objects (Blueprint app, client secret, Agent ID, SPA app registration, OBO scope consent) are tenant-side state. They survive `docker compose down`, reboots, and git resets. You only need to set them up once per tenant.
+
+Not sure? Run the matching snippet:
+
+**bash**
 
 ```bash
-# Start all services with AWS Bedrock
-docker-compose -f docker-compose-aws.yml up -d
-
-# Check status
-docker-compose -f docker-compose-aws.yml ps
-
-# View logs
-docker-compose -f docker-compose-aws.yml logs -f llm-agent-aws
+cd sidecar/aws
+test -f .env && grep -q '^BLUEPRINT_APP_ID=.\+' .env && echo "✓ .env looks ready" || echo "✗ run 6.2 first"
 ```
 
-### 3. Open the Demo
+**PowerShell**
 
-Navigate to: **http://localhost:3001**
-
-## Demo UI
-
-### Autonomous Mode
-![Agent UX - Autonomous](docs/images/bedrock-agent-ux-ato.png)
-
-### OBO Mode (On-Behalf-Of User)
-![Agent UX - OBO 1](docs/images/bedrock-agent-ux-obo-1.png)
-![Agent UX - OBO 2](docs/images/bedrock-agent-ux-obo-2.png)
-![Agent UX - OBO 3](docs/images/bedrock-agent-ux-obo-3.png)
-
-The UI provides:
-- **Query input** - Ask natural language questions about weather
-- **Debug panel** - Real-time flow visualization showing each step
-- **2×2 Mode Controls** - LLM Mode (Direct/Bedrock) × Token Flow (Autonomous/OBO)
-- **MSAL.js Sign-In** - Interactive Microsoft Entra login for OBO flow
-- **Token details** - View decoded JWT claims and validation
-
-## AWS Bedrock Agent Logs
-
-### Input to Bedrock
-![Bedrock Input Logs](docs/images/aws-bedrock-logs-input.png)
-
-Shows the request sent to AWS Bedrock with user query and available tools.
-
-### Output from Bedrock
-![Bedrock Output Logs](docs/images/awsbedrock-logs-output.png)
-
-Shows Bedrock's response with tool invocation decision and parameters.
-
-## Available Bedrock Models
-
-You can use any Bedrock model by setting `BEDROCK_MODEL_ID`:
-
-```env
-# Claude 3 Sonnet (recommended)
-BEDROCK_MODEL_ID=anthropic.claude-3-sonnet-20240229-v1:0
-
-# Claude 3 Haiku (faster, cheaper)
-BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
-
-# Claude 3 Opus (most capable)
-BEDROCK_MODEL_ID=anthropic.claude-3-opus-20240229-v1:0
-
-# Claude 3.5 Sonnet (latest)
-BEDROCK_MODEL_ID=anthropic.claude-3-5-sonnet-20241022-v2:0
+```powershell
+Cd sidecar/aws
+if ((Test-Path .env) -and (Select-String '^BLUEPRINT_APP_ID=.+' .env -Quiet)) { "✓ .env looks ready" } else { "✗ run 6.2 first" }
 ```
 
-## Two Dimensions (2×2 Design)
+### 6.2 First-time setup — create the Entra objects
 
-The demo surfaces **two independent toggles** that combine into four modes:
+Run this **once per tenant**. It creates the Blueprint app, Agent ID, and the SPA app used for OBO sign-in.
 
-### LLM Mode (Row 1)
+**a. Create Blueprint + Agent ID** (autonomous flow only)
 
-| Mode | Description |
-|------|-------------|
-| **⚡ Direct** | Skips LLM, calls weather tool directly. Fast demo of Agent Identity token flow. |
-| **☁️ Bedrock** | AWS Bedrock Claude decides when to call tools. Demonstrates agentic behavior. |
+Follow the PowerShell workflow in the **[repo root README](../../README.md)** (works on macOS, Linux and Windows with [PowerShell 7+](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell)). At the end you'll have:
 
-### Token Flow (Row 2)
+- `TENANT_ID` — your Entra tenant
+- `BLUEPRINT_APP_ID` — Blueprint app registration
+- `BLUEPRINT_CLIENT_SECRET` — client secret for the Blueprint
+- `AGENT_CLIENT_ID` — the Agent ID created from the Blueprint
 
-| Flow | Description |
-|------|-------------|
-| **🔒 Autonomous** | Agent gets its own token — no user sign-in required. Uses `/AuthorizationHeaderUnauthenticated/graph`. |
-| **👥 OBO (User)** | User signs in via MSAL.js, agent acts on their behalf via OAuth 2.0 OBO. Uses `/AuthorizationHeader/graph`. |
+**b. Create the SPA app + wire up OBO** (required for OBO flow only)
 
-### Combined Matrix
+**bash**
 
-| | 🔒 Autonomous | 👥 OBO |
+```bash
+bash ../../scripts/setup-obo-client-app.sh
+bash ../../scripts/setup-obo-blueprint.sh
+```
+
+**PowerShell**
+
+```powershell
+pwsh ../../scripts/setup-obo-client-app.ps1
+pwsh ../../scripts/setup-obo-blueprint.ps1 `
+    -TenantId        '<TENANT_ID>' `
+    -BlueprintAppId  '<BLUEPRINT_APP_ID>' `
+    -AgentAppId      '<AGENT_CLIENT_ID>' `
+    -ClientSpaAppId  '<CLIENT_SPA_APP_ID>'
+```
+
+> **Note:** the SPA redirect URI for this sample is `http://localhost:3001` (port 3001, not 3003). Make sure that's what's registered.
+
+**c. Populate `.env`**
+
+**bash**
+
+```bash
+cp .env.example .env
+"${EDITOR:-vi}" .env
+```
+
+**PowerShell**
+
+```powershell
+Copy-Item .env.example .env
+notepad .env   # or: code .env
+```
+
+Minimum required for **autonomous flow**: `TENANT_ID`, `BLUEPRINT_APP_ID`, `BLUEPRINT_CLIENT_SECRET`, `AGENT_CLIENT_ID`, plus an AWS auth tier from [§5](#5-aws-authentication--pick-the-right-tier).
+Additionally required for **OBO flow**: `CLIENT_SPA_APP_ID`.
+
+See [§7](#7-environment-variables) for details on each variable.
+
+### 6.3 Start the stack
+
+`docker compose` is identical on all hosts — make sure **Docker Desktop** (macOS / Windows) or the **Docker Engine** (Linux) is running first.
+
+```bash
+cd sidecar/aws
+docker compose up --build -d
+```
+
+Check readiness:
+
+**bash**
+
+```bash
+curl http://localhost:3001/api/status
+# {"bedrock_available": true, "bedrock_model": "us.anthropic.claude-3-haiku-20240307-v1:0", ...}
+```
+
+**PowerShell**
+
+```powershell
+Invoke-RestMethod http://localhost:3001/api/status
+# bedrock_available : True
+```
+
+> **⚠️ When you change `.env`** (e.g. STS creds expired and you pasted new ones), `docker compose restart` will **not** reload them. Use:
+> ```bash
+> docker compose up -d --force-recreate llm-agent-aws
+> ```
+
+### 6.4 Open the UI
+
+**→ [http://localhost:3001](http://localhost:3001)** ← the only port exposed to your host.
+
+A two-panel layout:
+
+- **Left panel — Chat**
+  - Header bar shows your **Tenant ID** and **Agent ID**
+  - Two toggles control the demo:
+    - **Execution Mode**: `Direct` (skip LLM) or `Bedrock` (LangChain ReAct agent on Claude)
+    - **Identity Flow**: `Autonomous` (app-only token) or `OBO` (acts for signed-in user)
+  - Input is pre-populated with *"Weather in Dallas?"* — press Send
+  - When **Identity Flow = OBO**, a **Sign in** button appears (MSAL.js popup)
+
+- **Right panel — Identity Trace**
+  - Step-by-step debug trace of every token exchange and API call
+  - Color-coded JWT cards for each token (**Tc** / **T1** / **TR**) with decoded claims
+  - Shows exactly what the weather API validates on each request
+
+**Ports exposed:**
+
+| Port | Service | Access |
 |---|---|---|
-| **⚡ Direct** | Tool → Sidecar (no user) → Weather API | Tool → Sidecar (user token) → Weather API |
-| **☁️ Bedrock** | LLM → Tool → Sidecar (no user) → Weather API | LLM → Tool → Sidecar (user token) → Weather API |
+| **3001** | Chat UI | `http://localhost:3001` — you |
+| *none* | Sidecar, weather API | Docker network only (trust boundary) |
 
-## On-Behalf-Of (OBO) Flow
+---
 
-When **OBO** is selected in the Token Flow toggle, the user is prompted to **sign in via MSAL.js** (Microsoft Authentication Library) in the browser. The acquired access token (`Tc`) is sent with each API request so the backend can pass it to the sidecar's authenticated endpoint.
+## 7. Environment variables
 
-### Autonomous vs. OBO
+See [.env.example](./.env.example) for the full template with the three AWS auth tiers.
 
-| | 🔒 Autonomous | 👥 OBO (Delegated) |
+| Variable | Description |
+|---|---|
+| `TENANT_ID` | Your Entra tenant ID |
+| `BLUEPRINT_APP_ID` | Blueprint app registration — the sidecar authenticates as this app |
+| `BLUEPRINT_CLIENT_SECRET` | Blueprint client secret (dev only — see below) |
+| `AGENT_CLIENT_ID` | Your Agent ID (appears as `AgentIdentity` query param) |
+| `CLIENT_SPA_APP_ID` | SPA app ID used by MSAL.js for browser sign-in (OBO only) |
+| `AWS_REGION` | AWS region for Bedrock — e.g. `us-east-2` |
+| `BEDROCK_MODEL_ID` | Default `us.anthropic.claude-3-haiku-20240307-v1:0` (cheapest); inference profile IDs prefixed `us.` route across regions |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` | **Tier A** only — temporary STS creds from `aws sso login` |
+| `AWS_BEARER_TOKEN_BEDROCK` | **Tier B** only — Bedrock API key |
+| `AWS_ROLE_ARN` / `AWS_WEB_IDENTITY_TOKEN_FILE` | **Tier C** only — set by App Service, not in `.env` |
+| `VALIDATE_TOKEN_SIGNATURE` | Default `true`. Set `false` to disable JWKS signature validation in the weather API (dev debugging only) |
+
+### Blueprint credential — pick the right `SourceType`
+
+The sidecar supports multiple credential types via `AzureAd__ClientCredentials__0__SourceType` in [docker-compose.yml](./docker-compose.yml):
+
+| SourceType | When to use |
+|---|---|
+| `ClientSecret` | **Local dev only** — what this sample ships with |
+| `SignedAssertionFromManagedIdentity` | **Production on Azure** — zero secrets, recommended (see [`DEPLOY-AZURE-APP-SERVICE.md`](./DEPLOY-AZURE-APP-SERVICE.md)) |
+| `KeyVault` | Certificate from Azure Key Vault |
+| `StoreWithThumbprint` | Certificate from local machine store |
+
+Reference: [microsoft-identity-web / Client Credentials](https://github.com/AzureAD/microsoft-identity-web/wiki/Client-Credentials)
+
+---
+
+## 8. Services
+
+| Service | Container | Host port | Role |
+|---|---|---|---|
+| `llm-agent-aws` | `llm-agent-aws` | **3001** | Flask app + chat UI + LangChain agent + Bedrock client |
+| `sidecar` | `agent-id-sidecar-aws` | *none* | Microsoft Entra SDK — issues tokens |
+| `weather-api` | `weather-api-aws` | *none* | Downstream API, validates JWT on every request |
+
+> **Security note:** Only the UI is exposed to the host. The sidecar and weather-api are reachable only within the Docker network, per [Microsoft's trust-boundary guidance](https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/security).
+
+---
+
+## 9. Running the tests
+
+Unit tests cover JWT decode, debug logging, all Flask routes, input validation, city extraction, and LangChain agent creation.
+
+**bash**
+
+```bash
+cd sidecar/aws
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt pytest
+python3 -m pytest tests/ -v
+```
+
+**PowerShell**
+
+```powershell
+Cd sidecar/aws
+python -m venv .venv
+. .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt pytest
+python -m pytest tests/ -v
+```
+
+Expected: **27 passed, 1 skipped** in under a second.
+
+---
+
+## 10. LangChain version and architecture
+
+| Package | Pinned | Role |
 |---|---|---|
-| **Sidecar Endpoint** | `/AuthorizationHeaderUnauthenticated/graph` | `/AuthorizationHeader/graph` |
-| **User Token Required** | ❌ No | ✅ Yes (Bearer Tc via MSAL.js) |
-| **Token Type** | App-only Agent Identity | Delegated Agent Identity |
-| **Use Case** | Background jobs, autonomous agents | User-facing apps, consent-based access |
-| **MSAL.js Sign-In** | Not needed | Interactive popup login |
+| `langchain` | `>=1.0.0` | Hosts `create_agent` (LangGraph ReAct builder) |
+| `langchain-core` | `>=1.0.0` | `@tool` decorator, message types |
+| `langchain-aws` | `>=0.2.0` | `ChatBedrockConverse` provider |
+| `langgraph` | `>=1.0.0` | Underlying agent runtime |
 
-### OBO Protocol Steps
+The agent is a **LangGraph ReAct agent** built with [`langchain.agents.create_agent`](https://docs.langchain.com/oss/python/langchain/agents) — this is the current pattern as of LangChain 1.x. The older `AgentExecutor` / `langgraph.prebuilt.create_react_agent` paths are deprecated and no longer used.
 
-```
-1. 👤 User authenticates → obtains Tc (user access token)
-      Tc audience must match Blueprint's Client ID
+---
 
-2. 📤 Agent sends Tc + AgentIdentity to sidecar
-      GET /AuthorizationHeader/graph?AgentIdentity={agentAppId}
-      Authorization: Bearer {Tc}
+## 11. Bedrock model selection
 
-3. 🔄 Sidecar performs OBO exchange:
-      POST /oauth2/v2.0/token
-        client_id=AgentIdentity
-        client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer
-        client_assertion={T1}
-        grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer
-        assertion={Tc}
-        requested_token_use=on_behalf_of
+This sample defaults to **`us.anthropic.claude-3-haiku-20240307-v1:0`** because it's the cheapest Anthropic model on Bedrock and supports tool calling. The `us.` prefix indicates a **cross-region inference profile** that routes between US regions for higher availability.
 
-4. 🔑 Entra ID returns delegated T2 token
+| Model ID | Cost per 1K input tokens | Notes |
+|---|---|---|
+| `us.anthropic.claude-3-haiku-20240307-v1:0` | $0.00025 | Default. Fast, cheapest, supports tool calling. |
+| `us.anthropic.claude-3-5-haiku-20241022-v1:0` | $0.0008 | Newer, smarter, still cheap. |
+| `us.anthropic.claude-3-5-sonnet-20241022-v2:0` | $0.003 | Best quality / cost ratio. |
 
-5. 🌤️ Agent calls Weather API with delegated token
-      Authorization: Bearer {T2}
-```
+Override via `BEDROCK_MODEL_ID` in `.env`. You must enable each model in the **AWS Bedrock console → Model access** before it can be invoked.
 
-### OBO Documentation
+---
 
-- [Agent OBO Flow (Protocol)](https://learn.microsoft.com/en-us/entra/agent-id/identity-platform/agent-on-behalf-of-oauth-flow)
-- [Sidecar SDK Configuration](https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/configuration)
-- [Sidecar SDK Endpoints Reference](https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/endpoints)
+## 12. Production deployment
 
-## Sequence Diagrams (Detailed Flow)
+The dev workflow above puts secrets in `.env`. **Do not deploy that to production.** For Azure App Service, follow the dedicated guide:
 
-### Autonomous Flow (App-Only)
+**→ [`DEPLOY-AZURE-APP-SERVICE.md`](./DEPLOY-AZURE-APP-SERVICE.md)**
 
-![Sequence Diagram](docs/images/sequence-diagram.png)
+It walks through, step by step:
 
-<details>
-<summary>View Mermaid source code (Autonomous)</summary>
+1. Configuring AWS to trust Azure as an OIDC identity provider
+2. Creating an IAM role scoped to `bedrock:InvokeModel` only
+3. Building and pushing container images to Azure Container Registry
+4. Deploying to App Service with system-assigned managed identity
+5. Switching the Entra sidecar from `ClientSecret` to `SignedAssertionFromManagedIdentity`
+6. Verifying with CloudTrail that no static AWS credentials exist anywhere
 
-```mermaid
-sequenceDiagram
-    actor User as User Browser
-    participant Flask as Flask App<br/>(Port 3001)
-    participant LangChain as LangChain +<br/>LangGraph
-    participant Tool as Weather Tool
-    participant Bedrock as AWS Bedrock<br/>Claude 3 Haiku
-    participant TokenExchange as Sidecar<br/>(Microsoft Entra Agent SDK)<br/>Port 5001
-    participant EntraID as Microsoft<br/>Entra ID
-    participant WeatherAPI as Weather API<br/>(Port 8080)
-    
-    User->>Flask: 1. "What's weather in Dallas?"
-    Flask->>LangChain: Process query
-    LangChain->>Bedrock: 2. Process with LLM
-    Bedrock->>LangChain: Tool call decision
-    LangChain->>Tool: Execute weather tool
-    
-    Tool->>TokenExchange: 3. Request Agent Token
-    TokenExchange->>EntraID: 4. Exchange T1 for T2
-    EntraID->>TokenExchange: 5. Return JWT Token
-    TokenExchange->>Tool: 6. Token
-    
-    Tool->>WeatherAPI: 7. Call API + JWT
-    WeatherAPI->>WeatherAPI: 8. Validate Token
-    WeatherAPI->>WeatherAPI: 9. Get Weather Data
-    WeatherAPI->>Tool: 10. Weather JSON
-    
-    Tool->>LangChain: Weather data
-    LangChain->>Bedrock: 11. Parse & Format
-    Bedrock->>LangChain: Formatted response
-    LangChain->>Flask: 12. Response
-    Flask->>User: 13. "Dallas is 72°F"
-```
+End state: **zero secrets** stored in App Settings, repo, or container images.
 
-</details>
+---
 
-### 5000-Feet View (Autonomous)
+## 13. Troubleshooting
 
-```
-                  ┌──────────────────┐
-                  │   1. USER QUERY  │
-                  │  "Weather in NY?"│
-                  └────────┬─────────┘
-                           │
-                           ▼
-              ┌────────────────────────────┐
-              │   2. LLM AGENT (Bedrock)   │
-              │      Claude 3 Haiku        │
-              └────────────┬───────────────┘
-                           │
-                           ▼
-                ┌─────────────────────┐            ┌─────────────────────┐
-                │  3. Side Car SDK    │───────────▶│ Microsoft Entra ID  │
-                │  for Agent ID       │  Request   │ (External Service)  │
-                │  (T1 → T2)          │◀───────────│ Token Exchange      │
-                └──────────┬──────────┘  Token Back└─────────────────────┘
-                           │
-                           ▼
-                ┌─────────────────────┐
-                │  4. WEATHER API     │
-                │  • Validate Token   │
-                │  • Get Weather Data │
-                │  • JSON Results     │
-                └──────────┬──────────┘
-                           │ JSON back to LLM Agent
-                           ▼
-              ┌────────────────────────────┐
-              │ 5. LLM PARSES & RESPONDS   │
-              │  Claude formats answer     │
-              │  Sends response to user    │
-              └────────────────────────────┘
-```
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `/api/status` → `bedrock_available: false` | AWS creds missing/expired or model access not granted | Check `docker logs llm-agent-aws`; refresh STS via `aws sso login`; enable model in Bedrock console |
+| `ExpiredTokenException` from Bedrock | STS session token (Tier A) expired (~1h) | Paste fresh creds in `.env`, then `docker compose up -d --force-recreate llm-agent-aws` (NOT `restart` — `restart` won't reload env) |
+| `AccessDeniedException` on `InvokeModel` | IAM principal lacks `bedrock:InvokeModel` on the model ARN, or model access not enabled | Grant `bedrock:InvokeModel` on `arn:aws:bedrock:*::foundation-model/anthropic.claude-3-haiku-*` and the inference profile ARN |
+| `ValidationException: invalid model identifier` | Region doesn't host that model, or you used the bare model ID instead of the `us.` inference profile | Use the `us.`-prefixed inference profile (e.g. `us.anthropic.claude-3-haiku-20240307-v1:0`) |
+| Weather API returns `401 Unauthorized` | Token tenant mismatch, expired secret, or signature check failed | Verify `TENANT_ID` matches the blueprint's tenant; check sidecar logs |
+| LLM responds without calling the tool | Prompt wasn't clearly tool-shaped, or model doesn't support tool calling | Use Claude 3 Haiku or newer; phrase the request as *"What's the weather in <city>?"* |
+| OBO sign-in popup blocked | Browser popup blocker | Allow popups for `localhost:3001` |
+| `4xx` from sidecar during OBO | `CLIENT_SPA_APP_ID` missing or SPA redirect URI mismatch | Re-run `setup-obo-client-app`; ensure `http://localhost:3001` is on the SPA's redirect URIs |
 
-**Flow Steps:**
-1. User asks weather question
-2. Claude (AWS Bedrock) processes query and calls weather tool
-3. Tool gets Agent Identity token from Sidecar → Entra ID
-4. Tool calls Weather API with token → validates → gets weather → returns JSON
-5. JSON flows back to Claude → parses and formats answer → user sees result
-
-### OBO Flow (Delegated — On-Behalf-Of User)
-
-![OBO Sequence Diagram](docs/images/sequence-diagram-obo.png)
-
-<details>
-<summary>View Mermaid source code (OBO)</summary>
-
-```mermaid
-sequenceDiagram
-    actor User as User Browser
-    participant MSAL as MSAL.js<br/>(Sign-In)
-    participant EntraLogin as Microsoft<br/>Entra ID<br/>(login.microsoftonline.com)
-    participant Flask as Flask App<br/>(Port 3001)
-    participant LangChain as LangChain +<br/>LangGraph
-    participant Tool as Weather Tool
-    participant Bedrock as AWS Bedrock<br/>Claude 3 Haiku
-    participant Sidecar as Sidecar<br/>(Microsoft Entra Agent SDK)<br/>Port 5001
-    participant EntraID as Microsoft<br/>Entra ID<br/>(Token Exchange)
-    participant WeatherAPI as Weather API<br/>(Port 8080)
-
-    Note over User,EntraLogin: Phase 1 — User Sign-In (MSAL.js)
-    User->>MSAL: 1. Click "Sign In"
-    MSAL->>EntraLogin: 2. Interactive login (popup)
-    EntraLogin->>MSAL: 3. Return Tc (user access token)
-    Note right of MSAL: Tc audience = api://{BlueprintAppId}
-
-    Note over User,WeatherAPI: Phase 2 — Agent Query with OBO
-    User->>Flask: 4. "What's weather in Dallas?" + Bearer Tc
-    Flask->>LangChain: 5. Process query (OBO mode)
-    LangChain->>Bedrock: 6. Send to AWS Bedrock
-    Bedrock->>LangChain: 7. Tool call decision
-    LangChain->>Tool: 8. Execute weather tool
-
-    Note over Tool,EntraID: Phase 3 — OBO Token Exchange (inside Sidecar)
-    Tool->>Sidecar: 9. GET /AuthorizationHeader/graph<br/>Authorization: Bearer Tc<br/>?AgentIdentity={agentAppId}
-    Sidecar->>Sidecar: 10. Validate Tc
-    Sidecar->>EntraID: 11. Acquire T1 (client_credentials)<br/>T1 = Blueprint app-only token
-    EntraID->>Sidecar: 12. Return T1
-    Note right of Sidecar: T1: appid={agentAppId}, idtyp=app<br/>Used as client_assertion in OBO
-    Sidecar->>EntraID: 13. OBO exchange:<br/>assertion=Tc, client_assertion=T1<br/>grant_type=jwt-bearer<br/>requested_token_use=on_behalf_of
-    EntraID->>Sidecar: 14. Return TR (delegated agent token)
-    Note right of Sidecar: TR: appid={agentAppId}, idtyp=user<br/>Acts on behalf of signed-in user
-    Sidecar->>Tool: 15. Authorization: Bearer TR
-
-    Note over Tool,WeatherAPI: Phase 4 — API Call with Delegated Token
-    Tool->>WeatherAPI: 16. GET /weather?city=Dallas<br/>Authorization: Bearer TR
-    WeatherAPI->>WeatherAPI: 17. Validate TR (delegated)
-    WeatherAPI->>WeatherAPI: 18. Get Weather Data
-    WeatherAPI->>Tool: 19. Weather JSON
-
-    Tool->>LangChain: 20. Weather data
-    LangChain->>Bedrock: 21. Parse & Format
-    Bedrock->>LangChain: 22. Formatted response
-    LangChain->>Flask: 23. Response
-    Flask->>User: 24. "Dallas is 72°F"
-```
-
-</details>
-
-### 5000-Feet View (OBO)
-
-```
-          ┌──────────────────────┐
-          │  0. USER SIGNS IN    │
-          │  via MSAL.js popup   │
-          │  → obtains Tc        │
-          │  aud=BlueprintAppId  │
-          └──────────┬───────────┘
-                     │
-                     ▼
-          ┌──────────────────────┐
-          │   1. USER QUERY      │
-          │  "Weather in NY?"    │
-          │  + Bearer Tc         │
-          └──────────┬───────────┘
-                     │
-                     ▼
-          ┌──────────────────────────────┐
-          │   2. LLM AGENT (Bedrock)     │
-          │      Claude 3 Haiku          │
-          └──────────┬───────────────────┘
-                     │
-                     ▼
-          ┌──────────────────────┐         ┌─────────────────────────┐
-          │  3. Sidecar SDK      │         │  Microsoft Entra ID     │
-          │                      │         │  (Token Exchange)       │
-          │  a) Validate Tc      │         │                         │
-          │  b) Acquire T1 ──────│────────▶│  client_credentials     │
-          │     (app-only)  ◀────│─────────│  → T1 (idtyp=app)      │
-          │  c) OBO exchange ────│────────▶│  Tc + T1 → TR           │
-          │     Tc + T1     ◀────│─────────│  → TR (idtyp=user)     │
-          │                      │         │  acts on behalf of user │
-          └──────────┬───────────┘         └─────────────────────────┘
-                     │ TR
-                     ▼
-          ┌──────────────────────┐
-          │  4. WEATHER API      │
-          │  • Validate TR       │
-          │  • TR = delegated    │
-          │    (acts on behalf   │
-          │     of signed-in     │
-          │     user)            │
-          │  • Get Weather Data  │
-          └──────────┬───────────┘
-                     │
-                     ▼
-          ┌──────────────────────────────┐
-          │ 5. LLM PARSES & RESPONDS     │
-          │  Claude formats answer       │
-          └──────────────────────────────┘
-```
-
-**OBO Flow Steps:**
-1. User signs in via MSAL.js → obtains Tc (audience = Blueprint App ID)
-2. User sends query + Bearer Tc to Flask agent
-3. Claude (AWS Bedrock) processes query and calls weather tool
-4. Sidecar handles the 3-step token exchange:
-   - **a)** Validates Tc (user's access token)
-   - **b)** Acquires T1 via client_credentials (`idtyp=app`, `appid=AgentAppId`)
-   - **c)** OBO exchange: Tc (assertion) + T1 (client_assertion) → TR (`idtyp=user`)
-5. Tool calls Weather API with TR → validates → returns weather data
-6. Response flows back through Claude to user
-
-### Debug Panel Flow (What You See in UI)
-
-```
-✅ 0. START                User query received
-✅ 0. BEDROCK             Sending to AWS Bedrock
-✅ 0. AGENT READY         LangChain agent created
-✅ 1. TOOL CALLED         LLM decides to call weather tool
-✅ 2.A TOKEN REQUEST      Request Agent Identity token
-✅ 2.B REQUEST URL        Sidecar URL with Agent ID
-✅ 2.C TOKEN RECEIVED     Got JWT with claims (shows decoded token)
-✅ 3.A API CALL           Calling Weather API
-✅ 3.B API URL            Weather API endpoint
-✅ 3.C API RESPONSE       Weather data received (shows full JSON)
-✅ 4. TOOL RESULT         Tool execution complete
-✅ 5. COMPLETE            Response sent to user
-```
-
-## Management Commands
+Container logs:
 
 ```bash
-# Start services
-docker-compose -f docker-compose-aws.yml up -d
-
-# Stop services
-docker-compose -f docker-compose-aws.yml down
-
-# View logs
-docker-compose -f docker-compose-aws.yml logs -f
-
-# Rebuild after code changes
-docker-compose -f docker-compose-aws.yml up -d --build llm-agent-aws
-
-# Full cleanup
-docker-compose -f docker-compose-aws.yml down -v --rmi all
+docker logs llm-agent-aws
+docker logs agent-id-sidecar-aws
+docker logs weather-api-aws
 ```
 
-## Running Both Demos Simultaneously
+---
 
-You can run both Ollama and AWS Bedrock demos at the same time:
+## 14. Stop & cleanup
 
 ```bash
-# Terminal 1: Start Ollama version (port 3000)
-docker-compose up -d
+# Stop containers, keep volumes/images
+docker compose down
 
-# Terminal 2: Start AWS Bedrock version (port 3001)
-docker-compose -f docker-compose-aws.yml up -d
-
-# Access:
-# - Ollama version: http://localhost:3000
-# - Bedrock version: http://localhost:3001
+# Nuke everything (containers, volumes, images)
+docker compose down -v --rmi all
 ```
 
-## Troubleshooting
+---
 
-### AWS Credentials Not Working
+## 15. Files
 
-```bash
-# Verify credentials in container
-docker exec -it llm-agent-aws env | grep AWS
-
-# Check Bedrock access
-docker-compose -f docker-compose-aws.yml logs llm-agent-aws
+```
+sidecar/aws/
+├── app.py                            # Flask app + LangGraph ReAct agent + Bedrock client
+├── docker-compose.yml                # llm-agent-aws, sidecar, weather-api
+├── Dockerfile                        # Python 3.11 slim base
+├── requirements.txt                  # LangChain 1.x, langchain-aws, Flask, MSAL
+├── .env.example                      # Template — copy to .env (3 AWS auth tiers documented)
+├── DEPLOY-AZURE-APP-SERVICE.md       # Production deployment with OIDC federation
+├── templates/
+│   └── index.html                    # Chat UI, MSAL.js, identity trace panel
+└── tests/
+    ├── __init__.py
+    └── test_app.py                   # 28 pytest tests (27 pass, 1 skip)
 ```
 
-### Bedrock Model Not Available
+---
 
-Make sure you've enabled model access in AWS Console:
-1. Go to AWS Bedrock console
-2. Navigate to "Model access"
-3. Request access to Claude models
-4. Wait for approval (usually instant)
+## 16. References
 
-### Port Conflict
-
-If port 3001 is in use, edit [docker-compose-aws.yml](../docker-compose-aws.yml):
-
-```yaml
-llm-agent-aws:
-  ports:
-    - "3002:3000"  # Change external port
-```
-
-## S3 Model Invocation Logging (Cheapest AWS Option)
-
-Enable S3 logging to track all Bedrock model invocations at minimal cost:
-
-### 1. Create S3 Bucket (One-time setup)
-
-```bash
-# Create bucket for logs
-aws s3 mb s3://my-bedrock-logs-bucket --region us-east-2
-
-# Enable versioning (optional)
-aws s3api put-bucket-versioning \
-  --bucket my-bedrock-logs-bucket \
-  --versioning-configuration Status=Enabled \
-  --region us-east-2
-```
-
-### 2. Enable Model Invocation Logging
-
-```bash
-# Enable logging via AWS CLI
-aws bedrock put-model-invocation-logging-configuration \
-  --region us-east-2 \
-  --logging-config '{
-    "s3Config": {
-      "bucketName": "my-bedrock-logs-bucket",
-      "keyPrefix": "bedrock-logs/"
-    },
-    "textDataDeliveryEnabled": true,
-    "imageDataDeliveryEnabled": false,
-    "embeddingDataDeliveryEnabled": false
-  }'
-```
-
-**OR via AWS Console:**
-1. Go to AWS Bedrock Console → Settings
-2. Click "Model invocation logging"
-3. Enable logging
-4. Choose "Amazon S3"
-5. Select your bucket: `my-bedrock-logs-bucket`
-6. Set prefix: `bedrock-logs/`
-7. Enable "Text data delivery"
-8. Save changes
-
-### 3. View Logs
-
-```bash
-# List log files
-aws s3 ls s3://my-bedrock-logs-bucket/bedrock-logs/ --recursive
-
-# Download latest logs
-aws s3 cp s3://my-bedrock-logs-bucket/bedrock-logs/ . --recursive
-
-# View specific log file
-aws s3 cp s3://my-bedrock-logs-bucket/bedrock-logs/2026/02/09/file.json - | jq .
-```
-
-### 4. Log Format
-
-Logs are JSON files containing:
-```json
-{
-  "schemaType": "ModelInvocationLog",
-  "schemaVersion": "1.0",
-  "timestamp": "2026-02-09T12:00:00Z",
-  "accountId": "123456789012",
-  "identity": {
-    "arn": "arn:aws:iam::123456789012:user/demo"
-  },
-  "region": "us-east-2",
-  "requestId": "abc123",
-  "operation": "InvokeModel",
-  "modelId": "us.anthropic.claude-3-haiku-20240307-v1:0",
-  "input": {
-    "inputContentType": "application/json",
-    "inputBodyJson": {
-      "messages": [{"role": "user", "content": "What's the weather?"}],
-      "anthropic_version": "bedrock-2023-05-31"
-    }
-  },
-  "output": {
-    "outputContentType": "application/json",
-    "outputBodyJson": {
-      "content": [{"type": "text", "text": "Let me check..."}]
-    }
-  }
-}
-```
-
-### Cost Breakdown
-
-- **S3 Storage**: $0.023/GB per month
-- **S3 PUT requests**: $0.005 per 1,000 requests
-- **Bedrock logging**: FREE (no additional charge)
-
-**Example monthly cost for 10,000 requests:**
-- Log size: ~2KB per request = 20MB total
-- Storage: 20MB × $0.023/GB = $0.00046
-- PUT requests: 10,000 × $0.005/1,000 = $0.05
-- **Total: ~$0.05/month** (5 cents!)
-
-Compare to CloudWatch: $0.50 per GB ingested = $10 for 20GB
-
-### Disable Logging
-
-```bash
-aws bedrock delete-model-invocation-logging-configuration --region us-east-2
-```
-
-## Cost Considerations
-
-AWS Bedrock charges per request:
-- Claude 3 Haiku: ~$0.00025 per request (cheapest)
-- Claude 3 Sonnet: ~$0.003 per request
-- Claude 3 Opus: ~$0.015 per request
-
-For development/demos, Haiku is recommended.
-
-## Services
-
-| Service | Port | Container Name | Description |
-|---------|------|----------------|-------------|
-| llm-agent-aws | 3001 | llm-agent-aws | Flask app with AWS Bedrock |
-| sidecar | 5001 | agent-id-sidecar-aws | Agent Identity token provider |
-| weather-api | 8080 | weather-api-aws | Demo API with token validation |
-
-## Comparison: Ollama vs AWS Bedrock
-
-| Feature | Ollama | AWS Bedrock |
-|---------|--------|-------------|
-| **Cost** | Free (local) | Pay per request |
-| **Speed** | Depends on hardware | Fast (cloud) |
-| **Model** | Llama 3.2 (1.5B) | Claude 3 Sonnet |
-| **Quality** | Good | Excellent |
-| **Setup** | 3GB download | AWS credentials |
-| **Port** | 3000 | 3001 |
-
-## Next Steps
-
-- Try different Bedrock models
-- Modify the weather tool for other APIs
-- Add more tools to the agent
-- Explore the token claims in debug panel
+- [Microsoft Entra Agent ID](https://learn.microsoft.com/en-us/entra/identity-platform/agent-identity/)
+- [Microsoft Entra SDK auth sidecar (container image)](https://mcr.microsoft.com/en-us/product/entra-sdk/auth-sidecar/about)
+- [LangChain Agents (v1)](https://docs.langchain.com/oss/python/langchain/agents)
+- [microsoft-identity-web Client Credentials](https://github.com/AzureAD/microsoft-identity-web/wiki/Client-Credentials)
+- [AWS Bedrock — supported foundation models](https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html)
+- [Cross-region inference profiles](https://docs.aws.amazon.com/bedrock/latest/userguide/cross-region-inference.html)
+- [`AssumeRoleWithWebIdentity` — OIDC federation](https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRoleWithWebIdentity.html)
