@@ -96,6 +96,27 @@ If you're shipping an agent to production, **this separation is the recommended 
 
 The sidecar sits between your agent and Microsoft Entra ID. The agent **never** talks to Entra directly, and it **never** sees a credential — it just asks the sidecar for an `Authorization:` header for a named downstream API.
 
+### 4.1 High-level flow (the 30-second view)
+
+```
+     ┌──────────┐   ask     ┌──────────┐  get token   ┌──────────┐
+     │  Agent   │ ────────▶ │ Sidecar  │ ───────────▶ │  Entra   │
+     │ (Flask + │           │ (Entra   │ ◀─────────── │   ID     │
+     │  LLM)    │ ◀──────── │   SDK)   │   TR token   └──────────┘
+     └────┬─────┘  header   └──────────┘
+          │
+          │ call API with Bearer TR
+          ▼
+     ┌──────────┐
+     │ Weather  │   validates TR, returns data
+     │   API    │
+     └──────────┘
+```
+
+**Three moving parts, one rule:** the **Agent** focuses on reasoning, the **Sidecar** owns all identity/credential work, the **downstream API** just validates the token it's given. Swap the LLM, swap the API, swap the credential type — the sidecar contract (`GET /AuthorizationHeader…`) stays the same.
+
+### 4.2 Detailed architecture
+
 ```
 ┌───────────────────────────────────────────────────────────────────────────────┐
 │                     agent-network-dev (Docker bridge)                         │
