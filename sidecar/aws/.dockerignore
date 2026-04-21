@@ -3,6 +3,7 @@
 !.env.example
 *.md
 docs/
+tests/
 templates/__pycache__/
 __pycache__/
 *.pyc
