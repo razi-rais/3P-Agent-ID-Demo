@@ -56,9 +56,9 @@ fi
 echo ""
 
 # ── Set SPA redirect URI ────────────────────────────────────────────────────
-echo "🔗 Setting SPA redirect URI → http://localhost:3001"
+echo "🔗 Setting SPA redirect URI → http://localhost:3003"
 az ad app update --id "$CLIENT_SPA_APP_ID" \
-    --set spa='{"redirectUris":["http://localhost:3001"]}'
+    --set spa='{"redirectUris":["http://localhost:3003"]}'
 echo "   ✅ Done"
 echo ""
 
@@ -92,9 +92,9 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "  ✅ Done!"
 echo ""
 echo "  Client SPA App ID: $CLIENT_SPA_APP_ID"
-echo "  Redirect URI:      http://localhost:3001"
+echo "  Redirect URI:      http://localhost:3003"
 echo ""
 echo "  Next:"
 echo "    docker-compose -f docker-compose-aws.yml up -d --build llm-agent-aws"
-echo "    open http://localhost:3001"
+echo "    open http://localhost:3003"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

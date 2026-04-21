@@ -38,3 +38,4 @@ aws-bedrock.json
 # Temporary files
 *.tmp
 agent365-samples/
+.env.backup*

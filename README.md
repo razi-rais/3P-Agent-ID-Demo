@@ -8,7 +8,6 @@ This lab guide walks you through the complete workflow for Microsoft Entra Agent
 - Create a Blueprint application (the factory for agent identities)
 - Create a Blueprint service principal
 - Create an Agent Identity
-- Create Agent Users (optional)
 - Perform two-token exchange (T1 → T2) to get access tokens
 - Assign Microsoft Graph permissions to your agent
 - Call Microsoft Graph API using the Agent Identity token
@@ -28,7 +27,7 @@ Once you've completed the setup, explore these hands-on demos:
 | **[🤖 AI-Guided Setup](./MASTER-SETUP-PROMPT.md)** | Interactive prompt for AI assistants to build the complete demo by asking questions | First-time users & teams |
 | **[Sidecar Guide](./sidecar/SIDECAR-GUIDE.md)** | Test Agent Identity tokens with simple PowerShell commands using the Microsoft Entra SDK sidecar | Learning the fundamentals |
 | **[Third-party Agent Demo](./sidecar/llm-agent/README.md)** | Complete visual demo with chat UI, real weather API, and token flow debug panel | End-to-end demonstration |
-| **[PowerShell Test Scenarios](./powershell-test-scenario/README.md)** | Comprehensive test scripts for creating multiple agents, agent users, and automated cleanup | Testing and validation |
+| **[PowerShell Test Scenarios](./powershell-test-scenario/README.md)** | Comprehensive test scripts for creating multiple agents and automated cleanup | Testing and validation |
 
 ---
 
@@ -192,10 +191,12 @@ You need the following Microsoft Graph API delegated permissions:
 | `AppRoleAssignment.ReadWrite.All` | Assign Microsoft Graph permissions to agents |
 | `User.Read` | Read signed-in user profile (for testing) |
 
-**Required Entra ID Role** (one of the following):
-- Global Administrator (recommended for initial setup)
-- Cloud Application Administrator (can create apps and service principals)
-- Application Administrator (can create apps and service principals)
+**Required Entra ID Role** (one of the following, per [Microsoft Entra built-in roles](https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/permissions-reference)):
+- [Global Administrator](https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/permissions-reference#global-administrator)
+- [Agent ID Administrator](https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/permissions-reference#agent-id-administrator) — manages all aspects of agents (blueprints, service principals, agent identities)
+- [Agent ID Developer](https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/permissions-reference#agent-id-developer) — creates agent blueprints and service principals; the user is automatically added as owner
+
+> **Note**: `Application Administrator` and `Cloud Application Administrator` are **not** sufficient — they can create regular apps but cannot create `agentIdentityBlueprints`.
 
 Note: The PowerShell functions automatically request these permissions when you connect to Microsoft Graph. You will be prompted to consent during sign-in.
 
@@ -242,7 +243,7 @@ $tenantId = (az account show --query tenantId -o tsv)
 Write-Host "Tenant ID: $tenantId"
 
 # Connect to Microsoft Graph with required Agent Identity scopes [In Azure Cloud Shell you may want to add -UseDeviceCode]
-Connect-MgGraph -Scopes "AgentIdentityBlueprint.AddRemoveCreds.All","AgentIdentityBlueprint.Create","DelegatedPermissionGrant.ReadWrite.All","Application.Read.All","AgentIdentityBlueprintPrincipal.Create","AppRoleAssignment.ReadWrite.All","AgentIdUser.ReadWrite.IdentityParentedBy","Directory.Read.All","User.Read" -TenantId $tenantId 
+Connect-MgGraph -Scopes "AgentIdentityBlueprint.AddRemoveCreds.All","AgentIdentityBlueprint.Create","DelegatedPermissionGrant.ReadWrite.All","Application.Read.All","AgentIdentityBlueprintPrincipal.Create","AppRoleAssignment.ReadWrite.All","Directory.Read.All","User.Read" -TenantId $tenantId 
 ```
 
 **What happens:**
@@ -260,7 +261,7 @@ Get-MgContext
 # Should show:
 # - Your account email
 # - Tenant ID
-# - All 8 required scopes (AgentIdentityBlueprint.*, Application.Read.All, AgentIdUser.ReadWrite.IdentityParentedBy, etc.)
+# - All required scopes (AgentIdentityBlueprint.*, Application.Read.All, etc.)
 ```
 
 > 💡 **Why this is required:** The PowerShell scripts need these permissions to create Agent Identity Blueprints, create agent identities, and assign Graph API permissions. Authenticating first ensures the scripts can perform all operations without interruption.
@@ -292,27 +293,17 @@ $result = Start-EntraAgentIDWorkflow -BlueprintName "Production Blueprint" -Agen
 # OR with custom permissions
 $result = Start-EntraAgentIDWorkflow -BlueprintName "Dev Blueprint" -AgentName "Weather Agent" -Permissions @("User.Read.All", "Directory.Read.All")
 
-# OR create agent with an Agent User
-$result = Start-EntraAgentIDWorkflow -BlueprintName "My Blueprint" -AgentName "My Agent" -CreateAgentUser
-
-# OR create agent with custom Agent User display name
-$result = Start-EntraAgentIDWorkflow -BlueprintName "Weather Blueprint" -AgentName "Weather Agent" -CreateAgentUser -AgentUserDisplayName "Weather Service User"
-
 # OR combine all parameters
 $result = Start-EntraAgentIDWorkflow `
     -TenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
     -BlueprintName "Production Blueprint" `
     -AgentName "Weather AI Agent" `
-    -Permissions @("User.Read.All", "Directory.Read.All") `
-    -CreateAgentUser `
-    -AgentUserDisplayName "Weather Bot User"
+    -Permissions @("User.Read.All", "Directory.Read.All")
 
 # 3. Use the returned context
 $result.Tokens.AccessToken  # Agent identity access token (T2)
 $result.Blueprint.BlueprintAppId  # Blueprint App ID
 $result.Agent.AgentIdentityAppId  # Agent App ID
-$result.AgentUser.AgentUserId  # Agent User ID (if -CreateAgentUser was used)
-$result.AgentUser.UserPrincipalName  # Agent User UPN (if -CreateAgentUser was used)
 ```
 
 > ⚠️ **Important**: `BlueprintName` and `AgentName` are **REQUIRED parameters**. You must provide meaningful names for both the blueprint and agent identity.
@@ -325,9 +316,8 @@ The workflow performs these steps automatically:
 3. Creates Agent Identity from blueprint - **you must provide a name**
 4. Performs T1 to T2 token exchange
 5. Adds Microsoft Graph permissions to agent
-6. (Optional) Creates Agent User if `-CreateAgentUser` flag is used
-7. Gets new token with permissions
-8. Tests token by calling Graph API and displays actual user data
+6. Gets new token with permissions
+7. Tests token by calling Graph API and displays actual user data
 
 ### Available Parameters
 
@@ -337,15 +327,12 @@ The workflow performs these steps automatically:
 | `-BlueprintName` | String | **YES** ✅ | Name for the Blueprint (e.g., "Production Blueprint") | `"Production Blueprint"` |
 | `-AgentName` | String | **YES** ✅ | Name for the Agent Identity (e.g., "Weather Agent") | `"Weather Agent"` |
 | `-Permissions` | String[] | No | Graph API permissions to assign | `@("User.Read.All", "Directory.Read.All")` |
-| `-CreateAgentUser` | Switch | No | Create an Agent User for the Agent Identity | `-CreateAgentUser` |
-| `-AgentUserDisplayName` | String | No | Custom display name for Agent User (auto-generated if not provided) | `"Weather Service User"` |
 | `-SkipTest` | Switch | No | Skip the final API test | `-SkipTest` |
 
 ### Features
 
 The automated workflow includes:
-- **Custom naming:** Set custom names for blueprints, agents, and agent users
-- **Agent User support:** Optionally create an Agent User with the `-CreateAgentUser` flag
+- **Custom naming:** Set custom names for blueprints and agent identities
 - **Secret verification:** Checks client secret works before proceeding
 - **Smart delays:** Built-in propagation delays for Entra consistency
 - **Retry logic:** Auto-retries for service principal and permission propagation
@@ -386,10 +373,6 @@ $tokens = Get-AgentIdentityToken -BlueprintAppId $blueprint.BlueprintAppId `
 Add-AgentIdentityPermissions -AgentIdentitySP $agent.AgentIdentitySP `
     -Permissions @("User.Read.All")
 
-# Create an Agent User (optional)
-$agentUser = New-AgentUser -AgentIdentityId $agent.AgentIdentityAppId `
-    -DisplayName "Weather Agent User"
-
 # Test token (calls Graph API and shows actual users)
 Test-AgentIdentityToken -AccessToken $tokens.AccessToken
 
@@ -399,39 +382,8 @@ Get-AgentIdentityList
 # List all blueprints
 Get-BlueprintList
 
-# List all agent users
-Get-AgentUsersList
-
 # Decode and inspect any JWT token
 Get-DecodedJwtToken -Token $tokens.AccessToken
-```
-
-### Agent User Functions
-
-Create and manage Agent Users for your Agent Identities:
-
-```powershell
-# Create an Agent User with auto-generated name
-$agentUser = New-AgentUser -AgentIdentityId "12345678-1234-1234-1234-123456789abc"
-
-# Create an Agent User with custom display name
-$agentUser = New-AgentUser -AgentIdentityId "12345678-1234-1234-1234-123456789abc" `
-    -DisplayName "Production Weather Agent"
-
-# Create an Agent User with agent name context (for better auto-generated names)
-$agentUser = New-AgentUser -AgentIdentityId "12345678-1234-1234-1234-123456789abc" `
-    -AgentName "Weather Agent"
-
-# List all Agent Users in the tenant
-Get-AgentUsersList
-```
-
-**What you get back:**
-```powershell
-$agentUser.AgentUserId         # The Agent User's unique ID
-$agentUser.DisplayName          # The display name
-$agentUser.UserPrincipalName    # The UPN (e.g., AgentUserXXXX@tenant.onmicrosoft.com)
-$agentUser.AgentIdentityId      # The linked Agent Identity App ID
 ```
 
 ---
@@ -658,105 +610,7 @@ Body: {
 
 ---
 
-### 9. Get Tenant Organization Information
-
-**Function**: `New-AgentUser`  
-**Call**:
-```powershell
-GET https://graph.microsoft.com/v1.0/organization
-```
-
-**Purpose**: Retrieves the tenant's verified domain name to construct the agent user's UPN (user principal name).
-
-**Returns**:
-```json
-{
-  "value": [{
-    "id": "tenant-id",
-    "displayName": "Contoso",
-    "verifiedDomains": [
-      {
-        "name": "contoso.onmicrosoft.com",
-        "isDefault": true,
-        "capabilities": "Email, OfficeCommunicationsOnline"
-      }
-    ]
-  }]
-}
-```
-
-**Why it's needed**: Agent users require a valid UPN in the format `username@domain.com`. This call gets the tenant's default domain to construct a valid UPN.
-
----
-
-### 10. Create Agent User
-
-**Function**: `New-AgentUser`  
-**Call**:
-```powershell
-POST https://graph.microsoft.com/beta/users/microsoft.graph.agentUser
-Body: {
-  "@odata.type": "microsoft.graph.agentUser",
-  "accountEnabled": true,
-  "displayName": "Weather Agent User",
-  "mailNickname": "WeatherAgentUser",
-  "userPrincipalName": "WeatherAgentUser@contoso.onmicrosoft.com",
-  "identityParentId": "<agent-sp-object-id>"
-}
-```
-
-**Purpose**: Creates an agent user entity linked to an agent identity. Agent users represent the agent in user-scoped scenarios.
-
-**Returns**:
-```json
-{
-  "id": "user-id",
-  "displayName": "Weather Agent User",
-  "userPrincipalName": "WeatherAgentUser@contoso.onmicrosoft.com",
-  "userType": "AgentUser",
-  "identityParentId": "601ed0a4-706c-4851-8af2-5dfa755f54b4"
-}
-```
-
-**Why it's needed**: When an agent needs to act on behalf of a user or appear in user lists (e.g., Teams chats, shared documents), an agent user provides that user-like identity while remaining linked to the parent agent.
-
----
-
-### 11. List Agent Users
-
-**Function**: `Get-AgentUsersList`  
-**Call**:
-```powershell
-GET https://graph.microsoft.com/beta/users?$filter=userType eq 'AgentUser'
-```
-
-**Purpose**: Retrieves all agent users in the tenant for inventory and management purposes.
-
-**Returns**:
-```json
-{
-  "value": [
-    {
-      "id": "user-id-1",
-      "displayName": "Weather Agent User",
-      "userPrincipalName": "WeatherAgentUser@contoso.onmicrosoft.com",
-      "userType": "AgentUser"
-    },
-    {
-      "id": "user-id-2",
-      "displayName": "Sales Agent User",
-      "userPrincipalName": "SalesAgentUser@contoso.onmicrosoft.com",
-      "userType": "AgentUser"
-    }
-  ]
-}
-```
-
-**Why it's needed**: Provides visibility into all agent users for auditing, management, and cleanup operations.
-
----
-
-### 12. List Agent Identities
+### 9. List Agent Identities
 
 **Function**: `Get-AgentIdentityList`  
 **Call**:
@@ -784,7 +638,7 @@ GET https://graph.microsoft.com/beta/servicePrincipals/graph.agentIdentity
 
 ---
 
-### 13. List Blueprints
+### 10. List Blueprints
 
 **Function**: `Get-BlueprintList`  
 **Call**:
@@ -824,15 +678,12 @@ GET https://graph.microsoft.com/beta/applications/graph.agentIdentityBlueprint
 | 6 | `/v1.0/servicePrincipals/<id>` | GET | Verify agent SP exists | `Add-AgentIdentityPermissions` |
 | 7 | `/v1.0/servicePrincipals?$filter=...` | GET | Get Graph SP ID | `Add-AgentIdentityPermissions` |
 | 8 | `/v1.0/servicePrincipals/<id>/appRoleAssignments` | POST | Assign permission | `Add-AgentIdentityPermissions` |
-| 9 | `/v1.0/organization` | GET | Get tenant domain | `New-AgentUser` |
-| 10 | `/beta/users/microsoft.graph.agentUser` | POST | Create agent user | `New-AgentUser` |
-| 11 | `/beta/users?$filter=...` | GET | List agent users | `Get-AgentUsersList` |
-| 12 | `/beta/servicePrincipals/graph.agentIdentity` | GET | List agent identities | `Get-AgentIdentityList` |
-| 13 | `/beta/applications/graph.agentIdentityBlueprint` | GET | List blueprints | `Get-BlueprintList` |
+| 9 | `/beta/servicePrincipals/graph.agentIdentity` | GET | List agent identities | `Get-AgentIdentityList` |
+| 10 | `/beta/applications/graph.agentIdentityBlueprint` | GET | List blueprints | `Get-BlueprintList` |
 
 **Key Observations**:
-- **Beta endpoints** are used for Agent Identity-specific operations (blueprints, agents, agent users)
-- **v1.0 endpoints** are used for standard operations (permissions, service principals, organization)
+- **Beta endpoints** are used for Agent Identity-specific operations (blueprints, agents)
+- **v1.0 endpoints** are used for standard operations (permissions, service principals)
 - Most operations use **GET** (read) or **POST** (create/assign)
 - **Filtering** is used extensively to find specific resources (`$filter` parameter)
 - **Propagation delays** require retry logic for newly created resources
@@ -850,7 +701,6 @@ The `powershell-test-scenario/` folder contains complete test scripts that demon
 Creates a complete sales assistant scenario with:
 - 1 Blueprint: "Contoso Sales Assistant"
 - 3 Agent Identities: "Agent-SalesOrderProcessing", "Agent-SalesOrderLeads", "Agent-Sales-BulkOrder"
-- 2 Agent Users: "Agent-SalesRep-US" and "Agent-SalesRep-Dubai"
 
 ```powershell
 cd powershell-test-scenario
@@ -959,12 +809,12 @@ Test-AgentIdentityToken -AccessToken $newTokens.AccessToken
 [OK] Got blueprint token for agent creation
 ```
 
-### Issue: "Service Principal not found" error when creating agent user
+### Issue: "Service Principal not found" error when adding permissions
 
 **Cause:** Newly created Service Principals need time to propagate across Azure AD infrastructure (typically 1-15 seconds)
 
 **Solution:** 
-- The `New-AgentUser` function **automatically retries** up to 5 times with 3-second delays
+- The `Add-AgentIdentityPermissions` function **automatically retries** up to 5 times with 3-second delays
 - You'll see: `[WAIT] Service Principal not available yet, waiting... (attempt X/5)`
 - **No action needed** - the script will retry automatically
 - If all retries fail after 15 seconds, check that:
@@ -1028,12 +878,10 @@ $tenantId = (Get-AzContext).Tenant.Id   #"<your-tenant-id>"
 
 # Connect to Graph with required scopes for Agent ID management
 # Note: You will be prompted to consent to these permissions in your browser
-Connect-MgGraph -Scopes "AgentIdentityBlueprint.AddRemoveCreds.All","AgentIdentityBlueprint.Create","DelegatedPermissionGrant.ReadWrite.All","Application.Read.All","AgentIdentityBlueprintPrincipal.Create","AppRoleAssignment.ReadWrite.All","AgentIdUser.ReadWrite.IdentityParentedBy","Directory.Read.All","User.Read" -TenantId $tenantId
+Connect-MgGraph -Scopes "AgentIdentityBlueprint.AddRemoveCreds.All","AgentIdentityBlueprint.Create","DelegatedPermissionGrant.ReadWrite.All","Application.Read.All","AgentIdentityBlueprintPrincipal.Create","AppRoleAssignment.ReadWrite.All","Directory.Read.All","User.Read" -TenantId $tenantId
 ```
 
-> ℹ️ **Permissions Consent**: A browser window will open asking you to consent to the required permissions. You must have sufficient privileges (Global Admin, Cloud Application Admin, or Application Admin role) to grant these permissions.
-
-> ℹ️ **Agent User Creation**: Agent User creation requires `AgentIdUser.ReadWrite.IdentityParentedBy` scope (least privileged) per [Microsoft Graph API documentation](https://learn.microsoft.com/en-us/graph/api/agentuser-post?view=graph-rest-beta&tabs=http#permissions).
+> ℹ️ **Permissions Consent**: A browser window will open asking you to consent to the required permissions. You must be assigned one of: **Global Administrator**, **Agent ID Administrator**, or **Agent ID Developer** (see [Microsoft Learn](https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/permissions-reference#agent-id-administrator)). `Application Administrator` and `Cloud Application Administrator` are **not** sufficient to create agent identity blueprints.
 
 ---
 

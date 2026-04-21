@@ -1,0 +1,1 @@
+../../../../scripts/setup-obo-blueprint.sh

@@ -1,0 +1,1 @@
+../../../../scripts/setup-obo-client-app.ps1

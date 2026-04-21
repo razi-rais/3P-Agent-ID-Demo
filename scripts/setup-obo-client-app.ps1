@@ -19,7 +19,7 @@ param(
     [string]$EnvFile,
     [string]$TenantId,
     [string]$AppName      = 'Agent Demo Client SPA',
-    [string]$RedirectUri  = 'http://localhost:3001'
+    [string]$RedirectUri  = 'http://localhost:3003'
 )
 
 $ErrorActionPreference = 'Stop'
