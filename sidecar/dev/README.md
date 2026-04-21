@@ -8,57 +8,7 @@ A visual, hands-on demonstration of how AI agents use **Microsoft Entra Agent ID
 
 ---
 
-## 1. Run it and open the UI
-
-```bash
-cd sidecar/dev
-
-# Copy the template and fill in values from your PowerShell workflow
-cp .env.example .env
-$EDITOR .env
-
-# Build and start everything
-docker compose up --build -d
-```
-
-Open the chat UI in your browser:
-
-**→ [http://localhost:3003](http://localhost:3003)** ← this is the only port exposed to your host.
-
-Wait ~30 seconds on first run while Ollama pulls the model. Check readiness:
-
-```bash
-curl http://localhost:3003/api/status
-# {"ollama_available": true, "ollama_model": "qwen2.5:1.5b", ...}
-```
-
-### What you'll see
-
-A two-panel layout:
-
-- **Left panel — Chat**
-  - Header bar shows your **Tenant ID** and **Agent ID**
-  - Two toggles control the demo:
-    - **Execution Mode**: `Direct` (skip LLM) or `Ollama` (LangChain ReAct agent)
-    - **Identity Flow**: `Autonomous` (app-only token) or `OBO` (acts for signed-in user)
-  - Input is pre-populated with *"Weather in Dallas?"* — press Send
-  - When **Identity Flow = OBO**, a **Sign in** button appears (MSAL.js popup)
-
-- **Right panel — Identity Trace**
-  - Step-by-step debug trace of every token exchange and API call
-  - Color-coded JWT cards for each token (**Tc** / **T1** / **TR**) with decoded claims
-  - Shows exactly what the weather API validates on each request
-
-**Ports exposed:**
-
-| Port | Service | Access |
-|---|---|---|
-| **3003** | Chat UI | `http://localhost:3003` — you |
-| *none* | Sidecar, weather API, Ollama | Docker network only (trust boundary) |
-
----
-
-## 2. Why the Microsoft Entra SDK sidecar?
+## 1. Why the Microsoft Entra SDK sidecar?
 
 This sample deliberately uses the **official [Microsoft Entra SDK auth sidecar](https://mcr.microsoft.com/en-us/product/entra-sdk/auth-sidecar/about)** container (`mcr.microsoft.com/entra-sdk/auth-sidecar`) rather than rolling our own token client. Here's why:
 
@@ -82,7 +32,7 @@ If you're shipping an agent to production, **this separation is the recommended 
 
 ---
 
-## 3. What this sample demonstrates
+## 2. What this sample demonstrates
 
 - **Two execution modes**: Direct tool call (fast, no LLM) vs LangChain + Ollama (agentic tool calling)
 - **Two identity flows**: Autonomous agent (app-only) vs On-Behalf-Of (OBO, acting for a signed-in user)
@@ -92,11 +42,11 @@ If you're shipping an agent to production, **this separation is the recommended 
 
 ---
 
-## 4. Architecture
+## 3. Architecture
 
 The sidecar sits between your agent and Microsoft Entra ID. The agent **never** talks to Entra directly, and it **never** sees a credential — it just asks the sidecar for an `Authorization:` header for a named downstream API.
 
-### 4.1 High-level flow (the 30-second view)
+### 3.1 High-level flow (the 30-second view)
 
 ```
      ┌──────────┐   ask     ┌──────────┐  get token   ┌──────────┐
@@ -115,7 +65,7 @@ The sidecar sits between your agent and Microsoft Entra ID. The agent **never** 
 
 **Three moving parts, one rule:** the **Agent** focuses on reasoning, the **Sidecar** owns all identity/credential work, the **downstream API** just validates the token it's given. Swap the LLM, swap the API, swap the credential type — the sidecar contract (`GET /AuthorizationHeader…`) stays the same.
 
-### 4.2 Detailed architecture
+### 3.2 Detailed architecture
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────┐
@@ -190,9 +140,9 @@ The sidecar sits between your agent and Microsoft Entra ID. The agent **never** 
 
 ---
 
-## 5. Sequence diagrams
+## 4. Sequence diagrams
 
-### 5.1 Autonomous flow (app-only)
+### 4.1 Autonomous flow (app-only)
 
 No user, no sign-in. The agent is authenticated as itself.
 
@@ -231,7 +181,7 @@ sequenceDiagram
     Flask->>User: 17. Chat reply + token trace panel
 ```
 
-### 5.2 OBO flow (on-behalf-of a signed-in user)
+### 4.2 OBO flow (on-behalf-of a signed-in user)
 
 The agent acts for a specific user. The sidecar performs a 3-step exchange and the downstream API sees a *delegated* token.
 
@@ -283,7 +233,7 @@ sequenceDiagram
     Flask->>User: 23. Chat reply (Tc/T1/TR cards visible)
 ```
 
-### 5.3 What the Identity Trace panel shows
+### 4.3 What the Identity Trace panel shows
 
 ```
 ✅ 0.A START                User query received
@@ -304,7 +254,7 @@ For OBO, you'll additionally see **Tc** (user token from MSAL) and **T1** (bluep
 
 ---
 
-## 6. Prerequisites
+## 5. Prerequisites
 
 1. **Docker Desktop** running
 2. **A registered Agent ID in Microsoft Entra** — run the PowerShell workflow in the repo root (see [SIDECAR-GUIDE.md](../SIDECAR-GUIDE.md)) to create:
@@ -315,7 +265,7 @@ For OBO, you'll additionally see **Tc** (user token from MSAL) and **T1** (bluep
 
 ---
 
-## 7. Environment variables
+## 6. Environment variables
 
 See [.env.example](./.env.example) for the full template.
 
@@ -340,6 +290,56 @@ The sidecar supports multiple credential types via `AzureAd__ClientCredentials__
 | `StoreWithThumbprint` | Certificate from local machine store |
 
 Reference: [microsoft-identity-web / Client Credentials](https://github.com/AzureAD/microsoft-identity-web/wiki/Client-Credentials)
+
+---
+
+## 7. Run it and open the UI
+
+```bash
+cd sidecar/dev
+
+# Copy the template and fill in values from your PowerShell workflow
+cp .env.example .env
+$EDITOR .env
+
+# Build and start everything
+docker compose up --build -d
+```
+
+Open the chat UI in your browser:
+
+**→ [http://localhost:3003](http://localhost:3003)** ← this is the only port exposed to your host.
+
+Wait ~30 seconds on first run while Ollama pulls the model. Check readiness:
+
+```bash
+curl http://localhost:3003/api/status
+# {"ollama_available": true, "ollama_model": "qwen2.5:1.5b", ...}
+```
+
+### What you'll see
+
+A two-panel layout:
+
+- **Left panel — Chat**
+  - Header bar shows your **Tenant ID** and **Agent ID**
+  - Two toggles control the demo:
+    - **Execution Mode**: `Direct` (skip LLM) or `Ollama` (LangChain ReAct agent)
+    - **Identity Flow**: `Autonomous` (app-only token) or `OBO` (acts for signed-in user)
+  - Input is pre-populated with *"Weather in Dallas?"* — press Send
+  - When **Identity Flow = OBO**, a **Sign in** button appears (MSAL.js popup)
+
+- **Right panel — Identity Trace**
+  - Step-by-step debug trace of every token exchange and API call
+  - Color-coded JWT cards for each token (**Tc** / **T1** / **TR**) with decoded claims
+  - Shows exactly what the weather API validates on each request
+
+**Ports exposed:**
+
+| Port | Service | Access |
+|---|---|---|
+| **3003** | Chat UI | `http://localhost:3003` — you |
+| *none* | Sidecar, weather API, Ollama | Docker network only (trust boundary) |
 
 ---
 
