@@ -94,29 +94,63 @@ If you're shipping an agent to production, **this separation is the recommended 
 
 ## 4. Architecture
 
+The sidecar sits between your agent and Microsoft Entra ID. The agent **never** talks to Entra directly, and it **never** sees a credential — it just asks the sidecar for an `Authorization:` header for a named downstream API.
+
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         agent-network-dev                               │
-│                                                                         │
-│  ┌──────────────────┐        ┌───────────────────────────────────────┐  │
-│  │  llm-agent-dev   │───────▶│  agent-id-sidecar-dev                 │  │
-│  │  (Flask + UI)    │        │  (Microsoft Entra SDK)                │  │
-│  │  :3000→host:3003 │◀───────│  No host port (trust boundary)        │  │
-│  └────────┬─────────┘        └──────────────────┬────────────────────┘  │
-│           │                                     │                       │
-│           │ Bearer TR                           │ OAuth2 to Entra ID    │
-│           ▼                                     ▼                       │
-│  ┌──────────────────┐                  ┌────────────────────┐           │
-│  │  weather-api-dev │                  │ login.microsoft... │           │
-│  │  (validates JWT) │                  │  (Entra ID)        │           │
-│  └──────────────────┘                  └────────────────────┘           │
-│                                                                         │
-│  ┌──────────────────┐                                                   │
-│  │    ollama-dev    │  ← used only when Execution Mode = Ollama         │
-│  │  (qwen2.5:1.5b)  │                                                   │
-│  └──────────────────┘                                                   │
-└─────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                     agent-network-dev (Docker bridge)                         │
+│                                                                               │
+│                                      ─────────── request path ────────────▶   │
+│                                      ◀───────── response path ─────────────   │
+│                                                                               │
+│  You (browser)                                                                │
+│   http://localhost:3003 ────┐                                                 │
+│                             │                                                 │
+│                             ▼                                                 │
+│   ┌──────────────────────────────────┐                                        │
+│   │  llm-agent-dev  (Flask + UI)     │                                        │
+│   │  :3000 → host :3003              │                                        │
+│   │                                  │                                        │
+│   │  ① Receive user query            │                                        │
+│   │  ② LangGraph ReAct agent runs    │                                        │
+│   │  ③ Tool needs to call weather API│                                        │
+│   │     → ask sidecar for a token    │                                        │
+│   └──────────────┬───────────────────┘                                        │
+│                  │ ④ GET /AuthorizationHeader...                              │
+│                  │    ?AgentIdentity={agentId}                                │
+│                  │    (Bearer Tc if OBO)                                      │
+│                  ▼                                                            │
+│   ┌──────────────────────────────────┐      ⑤ OAuth2   ┌─────────────────┐   │
+│   │  agent-id-sidecar-dev            │ ──────────────▶ │  Microsoft      │   │
+│   │  Microsoft Entra SDK             │                 │  Entra ID       │   │
+│   │  (official MS container image)   │ ◀────────────── │  login.micro... │   │
+│   │  NO host port — network only     │   ⑥ T1 or TR    │                 │   │
+│   │                                  │                 └─────────────────┘   │
+│   │  Responsibilities:               │                                        │
+│   │   • client_credentials flow      │                                        │
+│   │   • OBO exchange (Tc+T1 → TR)    │                                        │
+│   │   • Token caching & refresh      │                                        │
+│   │   • Credential management        │                                        │
+│   │     (ClientSecret, ManagedId,    │                                        │
+│   │      KeyVault, certificate…)     │                                        │
+│   └──────────────┬───────────────────┘                                        │
+│                  │ ⑦ Authorization: Bearer TR                                 │
+│                  ▼                                                            │
+│   ┌──────────────────────────────────┐                                        │
+│   │  weather-api-dev                 │                                        │
+│   │                                  │                                        │
+│   │  ⑧ Validate TR (JWKS, RS256,     │                                        │
+│   │    issuer, expiry, audience)     │                                        │
+│   │  ⑨ Return weather JSON           │                                        │
+│   └──────────────────────────────────┘                                        │
+│                                                                               │
+│   ┌──────────────────────────────────┐                                        │
+│   │   ollama-dev (qwen2.5:1.5b)      │  ← only when Execution Mode = Ollama   │
+│   └──────────────────────────────────┘                                        │
+└───────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**The key insight:** step ⑤ and ⑥ are the *only* place a credential is ever handled. It happens inside the sidecar, on a network the agent can't directly reach from outside. Your agent code at step ③ just does `requests.get(sidecar_url)` — no MSAL, no certificates, no secrets in application memory.
 
 ### Token flow
 
@@ -135,7 +169,121 @@ If you're shipping an agent to production, **this separation is the recommended 
 
 ---
 
-## 5. Prerequisites
+## 5. Sequence diagrams
+
+### 5.1 Autonomous flow (app-only)
+
+No user, no sign-in. The agent is authenticated as itself.
+
+```mermaid
+sequenceDiagram
+    actor User as User Browser
+    participant Flask as Flask App<br/>(llm-agent-dev, :3003)
+    participant LangChain as LangGraph<br/>ReAct agent
+    participant Tool as get_weather<br/>tool
+    participant Ollama as Ollama<br/>qwen2.5:1.5b
+    participant Sidecar as Entra SDK Sidecar<br/>(agent-id-sidecar-dev)
+    participant Entra as Microsoft<br/>Entra ID
+    participant WeatherAPI as Weather API<br/>(weather-api-dev)
+
+    User->>Flask: 1. "What's the weather in Dallas?"
+    Flask->>LangChain: 2. Invoke agent (autonomous)
+    LangChain->>Ollama: 3. Route query
+    Ollama->>LangChain: 4. Tool call: get_weather("Dallas")
+    LangChain->>Tool: 5. Execute tool
+
+    Note over Tool,Entra: Token acquisition — handled entirely by the sidecar
+    Tool->>Sidecar: 6. GET /AuthorizationHeaderUnauthenticated/graph-app<br/>?AgentIdentity={agentAppId}
+    Sidecar->>Entra: 7. client_credentials<br/>(client_id=BlueprintAppId, secret/FIC)
+    Entra->>Sidecar: 8. TR (app-only, idtyp=app)
+    Note right of Sidecar: Token cached for reuse
+    Sidecar->>Tool: 9. Authorization: Bearer TR
+
+    Tool->>WeatherAPI: 10. GET /weather?city=Dallas<br/>Authorization: Bearer TR
+    WeatherAPI->>WeatherAPI: 11. Validate TR<br/>(JWKS, issuer, expiry, audience)
+    WeatherAPI->>Tool: 12. Weather JSON
+
+    Tool->>LangChain: 13. Tool result
+    LangChain->>Ollama: 14. Format final response
+    Ollama->>LangChain: 15. "Dallas is 72°F, sunny"
+    LangChain->>Flask: 16. Response + debug trace
+    Flask->>User: 17. Chat reply + token trace panel
+```
+
+### 5.2 OBO flow (on-behalf-of a signed-in user)
+
+The agent acts for a specific user. The sidecar performs a 3-step exchange and the downstream API sees a *delegated* token.
+
+```mermaid
+sequenceDiagram
+    actor User as User Browser
+    participant MSAL as MSAL.js<br/>(in browser)
+    participant EntraLogin as Entra ID<br/>(login endpoint)
+    participant Flask as Flask App<br/>(llm-agent-dev, :3003)
+    participant LangChain as LangGraph<br/>ReAct agent
+    participant Tool as get_weather<br/>tool
+    participant Ollama as Ollama<br/>qwen2.5:1.5b
+    participant Sidecar as Entra SDK Sidecar<br/>(agent-id-sidecar-dev)
+    participant Entra as Entra ID<br/>(token endpoint)
+    participant WeatherAPI as Weather API<br/>(weather-api-dev)
+
+    Note over User,EntraLogin: Phase 1 — User sign-in (MSAL.js)
+    User->>MSAL: 1. Click "Sign in"
+    MSAL->>EntraLogin: 2. Interactive login (popup)
+    EntraLogin->>MSAL: 3. Tc (user access token)
+    Note right of MSAL: Tc audience = api://{BlueprintAppId}
+
+    Note over User,WeatherAPI: Phase 2 — Agent query with OBO
+    User->>Flask: 4. "Weather in Dallas?" + Bearer Tc
+    Flask->>LangChain: 5. Invoke agent (OBO)
+    LangChain->>Ollama: 6. Route query
+    Ollama->>LangChain: 7. Tool call: get_weather("Dallas")
+    LangChain->>Tool: 8. Execute tool (with Tc)
+
+    Note over Tool,Entra: Phase 3 — OBO token exchange (inside sidecar)
+    Tool->>Sidecar: 9. GET /AuthorizationHeader/graph<br/>Authorization: Bearer Tc<br/>?AgentIdentity={agentAppId}
+    Sidecar->>Sidecar: 10. Validate Tc
+    Sidecar->>Entra: 11. client_credentials<br/>→ T1 (Blueprint, idtyp=app)
+    Entra->>Sidecar: 12. T1
+    Sidecar->>Entra: 13. OBO exchange<br/>assertion=Tc, client_assertion=T1<br/>grant_type=jwt-bearer<br/>requested_token_use=on_behalf_of
+    Entra->>Sidecar: 14. TR (delegated, idtyp=user)
+    Note right of Sidecar: TR acts on behalf of signed-in user
+    Sidecar->>Tool: 15. Authorization: Bearer TR
+
+    Note over Tool,WeatherAPI: Phase 4 — Downstream call with delegated token
+    Tool->>WeatherAPI: 16. GET /weather?city=Dallas<br/>Authorization: Bearer TR
+    WeatherAPI->>WeatherAPI: 17. Validate TR (delegated)
+    WeatherAPI->>Tool: 18. Weather JSON
+
+    Tool->>LangChain: 19. Tool result
+    LangChain->>Ollama: 20. Format response
+    Ollama->>LangChain: 21. "Dallas is 72°F"
+    LangChain->>Flask: 22. Response + debug trace
+    Flask->>User: 23. Chat reply (Tc/T1/TR cards visible)
+```
+
+### 5.3 What the Identity Trace panel shows
+
+```
+✅ 0.A START                User query received
+✅ 0.B LANGCHAIN           Sending to LangGraph ReAct agent
+✅ 1.B TOOL CALL           LLM decides to call get_weather
+✅ 2.A TOKEN REQUEST       Request Agent Identity token
+✅ 2.B SIDECAR CALL        Sidecar URL with AgentIdentity=…
+✅ 2.C TOKEN RECEIVED      TR JWT received (decoded claims shown)
+✅ 3.A API CALL            Calling Weather API
+✅ 3.B API URL             Weather endpoint + Authorization header
+✅ 3.C TOKEN VALIDATION    What the API checks (JWKS, iss, exp, aud)
+✅ 3.D API RESPONSE        Weather data received (full JSON)
+✅ 4.  TOOL RESULT         Tool execution complete
+✅ 5.  COMPLETE            Response sent to user
+```
+
+For OBO, you'll additionally see **Tc** (user token from MSAL) and **T1** (blueprint app-only token) cards before the **TR**.
+
+---
+
+## 6. Prerequisites
 
 1. **Docker Desktop** running
 2. **A registered Agent ID in Microsoft Entra** — run the PowerShell workflow in the repo root (see [SIDECAR-GUIDE.md](../SIDECAR-GUIDE.md)) to create:
@@ -146,7 +294,7 @@ If you're shipping an agent to production, **this separation is the recommended 
 
 ---
 
-## 6. Environment variables
+## 7. Environment variables
 
 See [.env.example](./.env.example) for the full template.
 
@@ -174,7 +322,7 @@ Reference: [microsoft-identity-web / Client Credentials](https://github.com/Azur
 
 ---
 
-## 7. Services
+## 8. Services
 
 | Service | Container | Host port | Role |
 |---|---|---|---|
@@ -187,7 +335,7 @@ Reference: [microsoft-identity-web / Client Credentials](https://github.com/Azur
 
 ---
 
-## 8. Running the tests
+## 9. Running the tests
 
 Unit tests cover JWT decode, debug logging, all Flask routes, input validation, city extraction, and LangChain agent creation.
 
@@ -201,7 +349,7 @@ Expected: **28 passed in ~4s, zero warnings**.
 
 ---
 
-## 9. LangChain version and architecture
+## 10. LangChain version and architecture
 
 | Package | Pinned | Role |
 |---|---|---|
@@ -214,7 +362,7 @@ The agent is a **LangGraph ReAct agent** built with [`langchain.agents.create_ag
 
 ---
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -234,7 +382,7 @@ docker logs weather-api-dev
 
 ---
 
-## 11. Stop & cleanup
+## 12. Stop & cleanup
 
 ```bash
 # Stop containers, keep volumes/images
@@ -249,7 +397,7 @@ docker compose down -v --rmi all
 
 ---
 
-## 12. Files
+## 13. Files
 
 ```
 sidecar/dev/
@@ -267,7 +415,7 @@ sidecar/dev/
 
 ---
 
-## 13. References
+## 14. References
 
 - [Microsoft Entra Agent ID](https://learn.microsoft.com/en-us/entra/identity-platform/agent-identity/)
 - [Microsoft Entra SDK auth sidecar (container image)](https://mcr.microsoft.com/en-us/product/entra-sdk/auth-sidecar/about)
