@@ -14,32 +14,17 @@ from flask_cors import CORS
 LANGCHAIN_AVAILABLE = False
 ChatOllama = None
 tool = None
-AgentExecutor = None
-create_tool_calling_agent = None
-ChatPromptTemplate = None
 
 try:
     from langchain_ollama import ChatOllama
     from langchain_core.tools import tool
-    from langchain.agents import AgentExecutor
-    from langchain.agents import create_tool_calling_agent
-    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.messages import SystemMessage
+    from langchain.agents import create_agent
     LANGCHAIN_AVAILABLE = True
-    print("LangChain loaded successfully")
+    print("LangChain loaded successfully (LangGraph ReAct)")
 except ImportError as e:
-    # Try alternative import paths for newer LangChain versions
-    try:
-        from langchain_ollama import ChatOllama
-        from langchain_core.tools import tool
-        from langchain_core.prompts import ChatPromptTemplate
-        from langgraph.prebuilt import create_react_agent
-        # Use simpler ReAct agent pattern
-        LANGCHAIN_AVAILABLE = "react"
-        print("LangChain loaded with ReAct agent")
-    except ImportError as e2:
-        print(f"LangChain not fully available: {e}")
-        print(f"ReAct also failed: {e2}")
-        print("Running in direct mode only")
+    print(f"LangChain not available: {e}")
+    print("Running in direct mode only")
 
 app = Flask(__name__)
 CORS(app)  # ⚠️  DEMO ONLY — allows all origins. Restrict in production.
@@ -330,7 +315,7 @@ if LANGCHAIN_AVAILABLE and tool is not None:
 # LangChain Agent Setup
 # ============================================
 def create_weather_agent():
-    """Create LangChain agent with weather tool"""
+    """Create LangChain agent with weather tool using LangGraph ReAct pattern"""
     
     # Initialize Ollama LLM with extended timeout for first request
     llm = ChatOllama(
@@ -343,54 +328,30 @@ def create_weather_agent():
     # Define tools
     tools = [get_weather]
     
-    if LANGCHAIN_AVAILABLE == "react":
-        # Use LangGraph ReAct agent
-        from langgraph.prebuilt import create_react_agent
-        agent = create_react_agent(llm, tools)
-        return agent
-    else:
-        # Use traditional AgentExecutor
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a helpful weather assistant. When users ask about weather, 
-use the get_weather tool to fetch real weather data. The tool uses Agent Identity 
-authentication to securely access the weather API.
-
-Always use the tool for weather queries - don't make up weather data.
-After getting weather data, provide a friendly, conversational response."""),
-            ("human", "{input}"),
-            ("placeholder", "{agent_scratchpad}"),
-        ])
-        
-        agent = create_tool_calling_agent(llm, tools, prompt)
-        
-        agent_executor = AgentExecutor(
-            agent=agent,
-            tools=tools,
-            verbose=True,
-            handle_parsing_errors=True,
-            max_iterations=3
-        )
-        
-        return agent_executor
+    # Use LangGraph ReAct agent (same pattern as aws/gcp sidecars)
+    agent = create_agent(llm, tools)
+    return agent
 
 
 def process_with_langchain(user_query: str):
     """Process query using LangChain agent with tools"""
     log_debug("0.A START", f"User query: {user_query}")
-    log_debug("0.B LANGCHAIN", f"Sending query to LangChain agent (mode: {LANGCHAIN_AVAILABLE})")
+    log_debug("0.B LANGCHAIN", "Sending query to LangChain agent (LangGraph ReAct)")
     
     try:
         agent = create_weather_agent()
         log_debug("0. AGENT READY", f"LangChain agent created with Ollama ({OLLAMA_MODEL})")
         
-        if LANGCHAIN_AVAILABLE == "react":
-            # LangGraph ReAct agent uses different interface
-            result = agent.invoke({"messages": [("human", user_query)]})
-            # Extract final message
-            output = result.get("messages", [])[-1].content if result.get("messages") else "No response"
-        else:
-            result = agent.invoke({"input": user_query})
-            output = result.get("output", "No response from agent")
+        # LangGraph ReAct agent: system message + human query
+        system_msg = SystemMessage(content="You have access to a get_weather tool. When users ask about weather, call the get_weather tool ONCE with the city name, then provide a natural response using the data returned. Do NOT call the tool multiple times.")
+        
+        result = agent.invoke(
+            {"messages": [system_msg, ("human", user_query)]},
+            {"recursion_limit": 10}  # Max 10 steps to prevent loops
+        )
+        
+        # Extract final message
+        output = result.get("messages", [])[-1].content if result.get("messages") else "No response"
         
         log_debug("5. COMPLETE", "LangChain agent finished processing")
         
