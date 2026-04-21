@@ -1,6 +1,6 @@
 # Local Dev Sidecar (Ollama Edition)
 
-A visual demonstration of how AI agents use **Microsoft Entra Agent ID** to securely call downstream APIs. This edition runs entirely on your laptop with a local LLM via [Ollama](https://ollama.com) — no cloud LLM provider required.
+A visual, hands-on demonstration of how AI agents use **Microsoft Entra Agent ID** — via the official **Microsoft Entra SDK auth sidecar** — to securely call downstream APIs. Runs entirely on your laptop with a local LLM via [Ollama](https://ollama.com).
 
 > **TODO:** Screenshots of the UI (chat view, token trace panel, OBO sign-in) need to be captured and added to `docs/images/` before publishing.
 
@@ -8,17 +8,91 @@ A visual demonstration of how AI agents use **Microsoft Entra Agent ID** to secu
 
 ---
 
-## What this sample shows
+## 1. Run it and open the UI
+
+```bash
+cd sidecar/dev
+
+# Copy the template and fill in values from your PowerShell workflow
+cp .env.example .env
+$EDITOR .env
+
+# Build and start everything
+docker compose up --build -d
+```
+
+Open the chat UI in your browser:
+
+**→ [http://localhost:3003](http://localhost:3003)** ← this is the only port exposed to your host.
+
+Wait ~30 seconds on first run while Ollama pulls the model. Check readiness:
+
+```bash
+curl http://localhost:3003/api/status
+# {"ollama_available": true, "ollama_model": "qwen2.5:1.5b", ...}
+```
+
+### What you'll see
+
+A two-panel layout:
+
+- **Left panel — Chat**
+  - Header bar shows your **Tenant ID** and **Agent ID**
+  - Two toggles control the demo:
+    - **Execution Mode**: `Direct` (skip LLM) or `Ollama` (LangChain ReAct agent)
+    - **Identity Flow**: `Autonomous` (app-only token) or `OBO` (acts for signed-in user)
+  - Input is pre-populated with *"Weather in Dallas?"* — press Send
+  - When **Identity Flow = OBO**, a **Sign in** button appears (MSAL.js popup)
+
+- **Right panel — Identity Trace**
+  - Step-by-step debug trace of every token exchange and API call
+  - Color-coded JWT cards for each token (**Tc** / **T1** / **TR**) with decoded claims
+  - Shows exactly what the weather API validates on each request
+
+**Ports exposed:**
+
+| Port | Service | Access |
+|---|---|---|
+| **3003** | Chat UI | `http://localhost:3003` — you |
+| *none* | Sidecar, weather API, Ollama | Docker network only (trust boundary) |
+
+---
+
+## 2. Why the Microsoft Entra SDK sidecar?
+
+This sample deliberately uses the **official [Microsoft Entra SDK auth sidecar](https://mcr.microsoft.com/en-us/product/entra-sdk/auth-sidecar/about)** container (`mcr.microsoft.com/entra-sdk/auth-sidecar`) rather than rolling our own token client. Here's why:
+
+- **Certified implementation of the OAuth2 flows you actually need** — client credentials, OBO, and federated credentials — written and maintained by the identity team.
+- **Your agent code stays dumb.** The LLM agent never handles `client_id`, `client_secret`, certificates, JWKS, token caching, or OBO exchange. It just asks the sidecar: *"Give me an authorization header for this downstream API."*
+- **Swap credentials without touching agent code.** `ClientSecret` for dev, `SignedAssertionFromManagedIdentity` for production on Azure — change one env var, no code changes.
+- **Token caching, refresh, and expiry are handled for you.** No MSAL integration to debug.
+- **Security boundary is explicit.** The sidecar has no host port. Only services inside the Docker network can request tokens — your agent, not your browser, not random processes on the host.
+- **Portable pattern.** The same sidecar image runs under Docker Compose, Azure Container Apps (as a sidecar container), Kubernetes (as a sidecar pod), or App Service multi-container. Same config, same behavior.
+
+### What the agent does vs what the sidecar does
+
+| Agent (your code) | Sidecar (Microsoft Entra SDK) |
+|---|---|
+| Decide *when* to call the API | Acquire and cache the right token |
+| Build the HTTP request | Perform client-credentials / OBO exchange |
+| Pass through user token for OBO | Validate & forward user assertion |
+| Handle business logic | Talk to `login.microsoftonline.com` |
+
+If you're shipping an agent to production, **this separation is the recommended pattern** — your code never sees a secret, and all credential policy lives in one place.
+
+---
+
+## 3. What this sample demonstrates
 
 - **Two execution modes**: Direct tool call (fast, no LLM) vs LangChain + Ollama (agentic tool calling)
 - **Two identity flows**: Autonomous agent (app-only) vs On-Behalf-Of (OBO, acting for a signed-in user)
 - **Full token lifecycle**: Tc (user token) → T1 (blueprint app token) → TR (agent token) → downstream API
-- **JWT validation**: The weather API verifies signature (JWKS / RS256), issuer, and expiry on every request
+- **JWT validation end-to-end**: The weather API verifies signature (JWKS / RS256), issuer, and expiry on every request
 - **LangGraph ReAct agent**: Modern LangChain 1.x pattern with `langchain.agents.create_agent`
 
 ---
 
-## Architecture
+## 4. Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -52,9 +126,7 @@ A visual demonstration of how AI agents use **Microsoft Entra Agent ID** to secu
 | **T1** | Blueprint app | Both flows | Sidecar (client credentials) |
 | **TR** | Agent (downstream API) | Both flows | Sidecar — app-only (autonomous) or OBO exchange |
 
----
-
-## Modes and flows (2×2 matrix)
+### Modes and flows (2×2 matrix)
 
 |                     | **Autonomous** (app-only) | **OBO** (on behalf of user) |
 |---------------------|----------------------------|------------------------------|
@@ -63,7 +135,7 @@ A visual demonstration of how AI agents use **Microsoft Entra Agent ID** to secu
 
 ---
 
-## Prerequisites
+## 5. Prerequisites
 
 1. **Docker Desktop** running
 2. **A registered Agent ID in Microsoft Entra** — run the PowerShell workflow in the repo root (see [SIDECAR-GUIDE.md](../SIDECAR-GUIDE.md)) to create:
@@ -74,32 +146,7 @@ A visual demonstration of how AI agents use **Microsoft Entra Agent ID** to secu
 
 ---
 
-## Quick start
-
-```bash
-cd sidecar/dev
-
-# Copy the template and fill in values from your PowerShell workflow
-cp .env.example .env
-$EDITOR .env
-
-# Build and start everything
-docker compose up --build -d
-
-# Open the demo
-open http://localhost:3003
-```
-
-Wait ~30 seconds on first run while Ollama pulls the model. Check readiness:
-
-```bash
-curl http://localhost:3003/api/status
-# {"ollama_available": true, "ollama_model": "qwen2.5:1.5b", ...}
-```
-
----
-
-## Environment variables
+## 6. Environment variables
 
 See [.env.example](./.env.example) for the full template.
 
@@ -127,7 +174,7 @@ Reference: [microsoft-identity-web / Client Credentials](https://github.com/Azur
 
 ---
 
-## Services
+## 7. Services
 
 | Service | Container | Host port | Role |
 |---|---|---|---|
@@ -140,20 +187,7 @@ Reference: [microsoft-identity-web / Client Credentials](https://github.com/Azur
 
 ---
 
-## Using the UI
-
-The page has two toggles:
-
-- **Execution Mode** — `Direct` (skip LLM) or `Ollama` (LangChain ReAct agent)
-- **Identity Flow** — `Autonomous` (app-only token) or `OBO` (requires user sign-in)
-
-When you pick **OBO**, a **Sign in** button appears. MSAL.js acquires the Tc user token. On submit, the agent sends Tc to the sidecar, which exchanges it for the OBO TR token and calls the weather API as that user.
-
-The right-hand panel shows the full token trace — sidecar URLs, JWT claims (color-coded by token type), what the weather API validates, and the final result.
-
----
-
-## Running the tests
+## 8. Running the tests
 
 Unit tests cover JWT decode, debug logging, all Flask routes, input validation, city extraction, and LangChain agent creation.
 
@@ -167,7 +201,7 @@ Expected: **28 passed in ~4s, zero warnings**.
 
 ---
 
-## LangChain version and architecture
+## 9. LangChain version and architecture
 
 | Package | Pinned | Role |
 |---|---|---|
@@ -180,7 +214,7 @@ The agent is a **LangGraph ReAct agent** built with [`langchain.agents.create_ag
 
 ---
 
-## Troubleshooting
+## 10. Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -200,7 +234,7 @@ docker logs weather-api-dev
 
 ---
 
-## Stop & cleanup
+## 11. Stop & cleanup
 
 ```bash
 # Stop containers, keep volumes/images
@@ -215,7 +249,7 @@ docker compose down -v --rmi all
 
 ---
 
-## Files
+## 12. Files
 
 ```
 sidecar/dev/
@@ -233,9 +267,9 @@ sidecar/dev/
 
 ---
 
-## References
+## 13. References
 
 - [Microsoft Entra Agent ID](https://learn.microsoft.com/en-us/entra/identity-platform/agent-identity/)
-- [Auth Sidecar container](https://mcr.microsoft.com/en-us/product/entra-sdk/auth-sidecar/about)
+- [Microsoft Entra SDK auth sidecar (container image)](https://mcr.microsoft.com/en-us/product/entra-sdk/auth-sidecar/about)
 - [LangChain Agents (v1)](https://docs.langchain.com/oss/python/langchain/agents)
 - [microsoft-identity-web Client Credentials](https://github.com/AzureAD/microsoft-identity-web/wiki/Client-Credentials)
