@@ -145,6 +145,9 @@ The sidecar sits between your agent and Microsoft Entra ID. The agent **never** 
 
 No user, no sign-in. The agent is authenticated as itself.
 
+<details>
+<summary><b>📊 Show sequence diagram — Autonomous flow</b></summary>
+
 ```mermaid
 sequenceDiagram
     actor User as User Browser
@@ -180,9 +183,14 @@ sequenceDiagram
     Flask->>User: 17. Chat reply + token trace panel
 ```
 
+</details>
+
 ### 4.2 OBO flow (on-behalf-of a signed-in user)
 
 The agent acts for a specific user. The sidecar performs a 3-step exchange and the downstream API sees a *delegated* token.
+
+<details>
+<summary><b>📊 Show sequence diagram — OBO flow</b></summary>
 
 ```mermaid
 sequenceDiagram
@@ -231,6 +239,8 @@ sequenceDiagram
     LangChain->>Flask: 22. Response + debug trace
     Flask->>User: 23. Chat reply (Tc/T1/TR cards visible)
 ```
+
+</details>
 
 ### 4.3 What the Identity Trace panel shows
 
