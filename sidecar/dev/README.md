@@ -294,29 +294,72 @@ Reference: [microsoft-identity-web / Client Credentials](https://github.com/Azur
 
 ## 7. Run it and open the UI
 
+### 7.1 Do you already have an `.env` from a previous run?
+
+If **yes** — you've already run the repo-root PowerShell workflow and have `sidecar/dev/.env` populated with `TENANT_ID`, `BLUEPRINT_APP_ID`, `BLUEPRINT_CLIENT_SECRET`, `AGENT_CLIENT_ID`, and (for OBO) `CLIENT_SPA_APP_ID` — **skip to [7.3 Start the stack](#73-start-the-stack)**.
+
+> **Why?** All the Entra objects (Blueprint app, client secret, Agent ID, SPA app registration, OBO scope consent) are tenant-side state. They survive `docker compose down`, reboots, and git resets. You only need to set them up once per tenant.
+
+Not sure? Check:
+
 ```bash
 cd sidecar/dev
+test -f .env && grep -q '^BLUEPRINT_APP_ID=.\+' .env && echo "✅ .env looks ready" || echo "❌ run 7.2 first"
+```
 
-# Copy the template and fill in values from your PowerShell workflow
+### 7.2 First-time setup — create the Entra objects
+
+Run this **once per tenant**. It creates the Blueprint app, Agent ID, and the SPA app used for OBO sign-in.
+
+**a. Create Blueprint + Agent ID** (autonomous flow only)
+
+Follow the PowerShell workflow in the **[repo root README](../../README.md)**. At the end you'll have:
+
+- `TENANT_ID` — your Entra tenant
+- `BLUEPRINT_APP_ID` — Blueprint app registration
+- `BLUEPRINT_CLIENT_SECRET` — client secret for the Blueprint
+- `AGENT_CLIENT_ID` — the Agent ID created from the Blueprint
+
+**b. Create the SPA app + wire up OBO** (required for OBO flow)
+
+```bash
+# Create the SPA app registration for MSAL.js browser sign-in
+bash ../../scripts/setup-obo-client-app.sh
+# → prints CLIENT_SPA_APP_ID
+
+# Wire up the OBO scope + admin consent on the Blueprint
+bash ../../scripts/setup-obo-blueprint.sh
+```
+
+**c. Populate `.env`**
+
+```bash
 cp .env.example .env
-$EDITOR .env
+$EDITOR .env   # paste in the 5 values from steps a and b
+```
 
-# Build and start everything
+Minimum required for **autonomous flow**: `TENANT_ID`, `BLUEPRINT_APP_ID`, `BLUEPRINT_CLIENT_SECRET`, `AGENT_CLIENT_ID`.
+Additionally required for **OBO flow**: `CLIENT_SPA_APP_ID`.
+
+See section [6. Environment variables](#6-environment-variables) for details on each.
+
+### 7.3 Start the stack
+
+```bash
+cd sidecar/dev
 docker compose up --build -d
 ```
 
-Open the chat UI in your browser:
-
-**→ [http://localhost:3003](http://localhost:3003)** ← this is the only port exposed to your host.
-
-Wait ~30 seconds on first run while Ollama pulls the model. Check readiness:
+First run takes ~30 seconds while Ollama pulls `qwen2.5:1.5b`. Check readiness:
 
 ```bash
 curl http://localhost:3003/api/status
 # {"ollama_available": true, "ollama_model": "qwen2.5:1.5b", ...}
 ```
 
-### What you'll see
+### 7.4 Open the UI
+
+**→ [http://localhost:3003](http://localhost:3003)** ← the only port exposed to your host.
 
 A two-panel layout:
 
