@@ -145,11 +145,10 @@ The sidecar sits between your agent and Microsoft Entra ID. The agent **never** 
 
 No user, no sign-in. The agent is authenticated as itself.
 
-<!-- TODO: add rendered image of the autonomous sequence diagram -->
 ![Autonomous flow sequence diagram](docs/images/sequence-autonomous.png)
 
 <details>
-<summary><b>📊 Show sequence diagram — Autonomous flow</b></summary>
+<summary><b>📊 Show sequence diagram source (Mermaid) — Autonomous flow</b></summary>
 
 ```mermaid
 sequenceDiagram
@@ -192,11 +191,10 @@ sequenceDiagram
 
 The agent acts for a specific user. The sidecar performs a 3-step exchange and the downstream API sees a *delegated* token.
 
-<!-- TODO: add rendered image of the OBO sequence diagram -->
 ![OBO flow sequence diagram](docs/images/sequence-obo.png)
 
 <details>
-<summary><b>📊 Show sequence diagram — OBO flow</b></summary>
+<summary><b>📊 Show sequence diagram source (Mermaid) — OBO flow</b></summary>
 
 ```mermaid
 sequenceDiagram
@@ -271,12 +269,19 @@ For OBO, you'll additionally see **Tc** (user token from MSAL) and **T1** (bluep
 
 ## 5. Prerequisites
 
-1. **Docker Desktop** running
-2. **A registered Agent ID in Microsoft Entra** — run the PowerShell workflow in the repo root (see [SIDECAR-GUIDE.md](../SIDECAR-GUIDE.md)) to create:
-   - Blueprint app (with client secret)
-   - Agent ID
-   - SPA app (for OBO browser sign-in)
-3. Optional: [Ollama](https://ollama.com) model. The docker-compose pulls `qwen2.5:1.5b` automatically.
+Works on **macOS**, **Linux**, and **Windows 10/11**.
+
+| Need | macOS | Linux | Windows |
+|---|---|---|---|
+| Docker | Docker Desktop | Docker Engine + Compose v2 | Docker Desktop (WSL 2 backend recommended) |
+| Shell for `.sh` helpers | Terminal (bash/zsh) | bash | **WSL** or **Git Bash** (one of the OBO setup helpers is bash-only) |
+| PowerShell 7+ | `brew install --cask powershell` | [install docs](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-linux) | built-in (or install PS 7+) |
+| Azure CLI | `brew install azure-cli` | [install docs](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-linux) | `winget install -e Microsoft.AzureCLI` |
+| Python 3.11+ (only if you run tests) | `brew install python@3.11` | distro package | `winget install -e Python.Python.3.11` |
+
+You also need a **registered Agent ID in Microsoft Entra** — the repo-root PowerShell workflow creates all of that (Blueprint app with client secret, Agent ID, and — via the helper scripts — the SPA app used for OBO sign-in). See [§7.2](#72-first-time-setup--create-the-entra-objects).
+
+Ollama is **not** a prerequisite on the host — it runs inside the compose stack and pulls `qwen2.5:1.5b` automatically.
 
 ---
 
@@ -310,17 +315,28 @@ Reference: [microsoft-identity-web / Client Credentials](https://github.com/Azur
 
 ## 7. Run it and open the UI
 
+> **Supported hosts:** macOS, Linux, and Windows 10/11. Every command below is given for **bash** (macOS / Linux / WSL / Git Bash) and **PowerShell 7+** (Windows). Pick the one that matches your shell.
+
 ### 7.1 Do you already have an `.env` from a previous run?
 
-If **yes** — you've already run the repo-root PowerShell workflow and have `sidecar/dev/.env` populated with `TENANT_ID`, `BLUEPRINT_APP_ID`, `BLUEPRINT_CLIENT_SECRET`, `AGENT_CLIENT_ID`, and (for OBO) `CLIENT_SPA_APP_ID` — **skip to [7.3 Start the stack](#73-start-the-stack)**.
+If **yes** — you've already run the tenant setup once and have `sidecar/dev/.env` populated with `TENANT_ID`, `BLUEPRINT_APP_ID`, `BLUEPRINT_CLIENT_SECRET`, `AGENT_CLIENT_ID`, and (for OBO) `CLIENT_SPA_APP_ID` — **skip to [7.3 Start the stack](#73-start-the-stack)**.
 
 > **Why?** All the Entra objects (Blueprint app, client secret, Agent ID, SPA app registration, OBO scope consent) are tenant-side state. They survive `docker compose down`, reboots, and git resets. You only need to set them up once per tenant.
 
-Not sure? Check:
+Not sure? Run the matching snippet:
+
+**bash (macOS / Linux / WSL / Git Bash)**
 
 ```bash
 cd sidecar/dev
 test -f .env && grep -q '^BLUEPRINT_APP_ID=.\+' .env && echo "✅ .env looks ready" || echo "❌ run 7.2 first"
+```
+
+**PowerShell (Windows)**
+
+```powershell
+Cd sidecar/dev
+if ((Test-Path .env) -and (Select-String '^BLUEPRINT_APP_ID=.+' .env -Quiet)) { "✅ .env looks ready" } else { "❌ run 7.2 first" }
 ```
 
 ### 7.2 First-time setup — create the Entra objects
@@ -329,7 +345,7 @@ Run this **once per tenant**. It creates the Blueprint app, Agent ID, and the SP
 
 **a. Create Blueprint + Agent ID** (autonomous flow only)
 
-Follow the PowerShell workflow in the **[repo root README](../../README.md)**. At the end you'll have:
+Follow the PowerShell workflow in the **[repo root README](../../README.md)** (works on macOS, Linux and Windows with [PowerShell 7+](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell)). At the end you'll have:
 
 - `TENANT_ID` — your Entra tenant
 - `BLUEPRINT_APP_ID` — Blueprint app registration
@@ -337,6 +353,10 @@ Follow the PowerShell workflow in the **[repo root README](../../README.md)**. A
 - `AGENT_CLIENT_ID` — the Agent ID created from the Blueprint
 
 **b. Create the SPA app + wire up OBO** (required for OBO flow)
+
+Two helper scripts are provided. The SPA-app creation script is bash-only; on Windows run it from **WSL** or **Git Bash**.
+
+**bash (macOS / Linux / WSL / Git Bash)**
 
 ```bash
 # Create the SPA app registration for MSAL.js browser sign-in
@@ -347,11 +367,34 @@ bash ../../scripts/setup-obo-client-app.sh
 bash ../../scripts/setup-obo-blueprint.sh
 ```
 
+**PowerShell (Windows — native)**
+
+```powershell
+# Step 1 — run the SPA-app creation from Git Bash or WSL (no .ps1 equivalent):
+#   bash ../../scripts/setup-obo-client-app.sh
+#
+# Step 2 — back in PowerShell, wire up OBO on the Blueprint:
+pwsh ../../scripts/setup-obo-blueprint.ps1 `
+    -TenantId        '<TENANT_ID>' `
+    -BlueprintAppId  '<BLUEPRINT_APP_ID>' `
+    -AgentAppId      '<AGENT_CLIENT_ID>' `
+    -ClientSpaAppId  '<CLIENT_SPA_APP_ID>'
+```
+
 **c. Populate `.env`**
+
+**bash**
 
 ```bash
 cp .env.example .env
-$EDITOR .env   # paste in the 5 values from steps a and b
+"${EDITOR:-vi}" .env   # paste in the 5 values from steps a and b
+```
+
+**PowerShell**
+
+```powershell
+Copy-Item .env.example .env
+notepad .env   # or: code .env
 ```
 
 Minimum required for **autonomous flow**: `TENANT_ID`, `BLUEPRINT_APP_ID`, `BLUEPRINT_CLIENT_SECRET`, `AGENT_CLIENT_ID`.
@@ -361,6 +404,8 @@ See section [6. Environment variables](#6-environment-variables) for details on 
 
 ### 7.3 Start the stack
 
+`docker compose` is identical on all hosts — make sure **Docker Desktop** (macOS / Windows) or the **Docker Engine** (Linux) is running first.
+
 ```bash
 cd sidecar/dev
 docker compose up --build -d
@@ -368,9 +413,19 @@ docker compose up --build -d
 
 First run takes ~30 seconds while Ollama pulls `qwen2.5:1.5b`. Check readiness:
 
+**bash**
+
 ```bash
 curl http://localhost:3003/api/status
 # {"ollama_available": true, "ollama_model": "qwen2.5:1.5b", ...}
+```
+
+**PowerShell**
+
+```powershell
+Invoke-RestMethod http://localhost:3003/api/status
+# ollama_available : True
+# ollama_model     : qwen2.5:1.5b
 ```
 
 ### 7.4 Open the UI
@@ -418,10 +473,23 @@ A two-panel layout:
 
 Unit tests cover JWT decode, debug logging, all Flask routes, input validation, city extraction, and LangChain agent creation.
 
+**bash (macOS / Linux / WSL / Git Bash)**
+
 ```bash
 cd sidecar/dev
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest
 python3 -m pytest tests/ -v
+```
+
+**PowerShell (Windows)**
+
+```powershell
+Cd sidecar/dev
+python -m venv .venv
+. .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt pytest
+python -m pytest tests/ -v
 ```
 
 Expected: **28 passed in ~4s, zero warnings**.
