@@ -18,7 +18,6 @@ tool = None
 try:
     from langchain_ollama import ChatOllama
     from langchain_core.tools import tool
-    from langchain_core.messages import SystemMessage
     from langchain.agents import create_agent
     LANGCHAIN_AVAILABLE = True
     print("LangChain loaded successfully (LangGraph ReAct)")
@@ -342,11 +341,10 @@ def process_with_langchain(user_query: str):
         agent = create_weather_agent()
         log_debug("0. AGENT READY", f"LangChain agent created with Ollama ({OLLAMA_MODEL})")
         
-        # LangGraph ReAct agent: system message + human query
-        system_msg = SystemMessage(content="You have access to a get_weather tool. When users ask about weather, call the get_weather tool ONCE with the city name, then provide a natural response using the data returned. Do NOT call the tool multiple times.")
-        
+        # LangGraph ReAct agent — keep prompt minimal; small models (qwen2.5:1.5b)
+        # are sensitive to extra instructions and may skip the tool call.
         result = agent.invoke(
-            {"messages": [system_msg, ("human", user_query)]},
+            {"messages": [("human", user_query)]},
             {"recursion_limit": 10}  # Max 10 steps to prevent loops
         )
         
