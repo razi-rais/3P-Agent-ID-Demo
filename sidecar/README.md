@@ -82,7 +82,7 @@ PATTERN A: Get Token Only (Step 1 & 2)
     └──────────┬───────────┘
                │
                │ ① GET /AuthorizationHeaderUnauthenticated/graph
-               │    ?AgentIdentity=54785f2d...
+               │    ?AgentIdentity=aaaa1111...
                ↓
     ┌─────────────────────────────────────────────────────────────────┐
     │              Sidecar Container                                  │
@@ -100,7 +100,7 @@ PATTERN A: Get Token Only (Step 1 & 2)
     │     │ • Receive Blueprint Token (T1)                 │          │
     │     │              ↓                                 │          │
     │     │ • Exchange T1 → Agent Token (T2)               │          │
-    │     │   for Agent ID: 54785f2d...                    │          │
+    │     │   for Agent ID: aaaa1111...                    │          │
     │     │   with scopes: User.Read.All                   │          │
     │     │              ↓                                 │          │
     │     │ • Receive Agent Token (T2)                     │          │
@@ -145,7 +145,7 @@ PATTERN B: Call Downstream API Directly (Step 4)
                │
                │ ① POST /DownstreamApiUnauthenticated/graph
                │    ?optionsOverride.RelativePath=users
-               │    &AgentIdentity=54785f2d...
+               │    &AgentIdentity=aaaa1111...
                ↓
     ┌─────────────────────────────────────────────────────────────────┐
     │              Sidecar Container                                  │
@@ -163,7 +163,7 @@ PATTERN B: Call Downstream API Directly (Step 4)
     │     │ • Receive Blueprint Token (T1)                 │          │
     │     │              ↓                                 │          │
     │     │ • Exchange T1 → Agent Token (T2)               │          │
-    │     │   for Agent ID: 54785f2d...                    │          │
+    │     │   for Agent ID: aaaa1111...                    │          │
     │     │              ↓                                 │          │
     │     │ • Receive Agent Token (T2)                     │          │
     │     └────────────────────────────────────────────────┘          │
@@ -226,7 +226,7 @@ PATTERN B: Call Downstream API Directly (Step 4)
                │
                │ ① POST /DownstreamApiUnauthenticated/graph
                │    ?optionsOverride.RelativePath=users
-               │    &AgentIdentity=54785f2d...
+               │    &AgentIdentity=aaaa1111...
                ↓
     ┌────────────────────────────────────────────────────────┐
     │              Sidecar Container                         │
@@ -240,7 +240,7 @@ PATTERN B: Call Downstream API Directly (Step 4)
                ↓
     ┌──────────────────────────────────────────────────────┐
     │           Microsoft Entra ID                         │
-    │  • Issues T1, returns T2 for Agent 54785f2d...       │
+    │  • Issues T1, returns T2 for Agent aaaa1111...       │
     └──────────┬───────────────────────────────────────────┘
                │
                │ ③ Sidecar gets Agent Token (T2)
@@ -532,7 +532,7 @@ Write-Host "`nThis token proves the Agent has these permissions: $($claims.roles
 **What you'll see:**
 ```
 [INFO] Token Analysis:
-App ID (appid):     54785f2d-278e-492f-b1d3-21e7595be303
+App ID (appid):     <your-agent-app-id>
 Audience (aud):     https://graph.microsoft.com
 Issuer (iss):       https://sts.windows.net/[tenant-id]/
 Roles/Permissions:  User.Read.All

@@ -1,0 +1,59 @@
+properties:
+  managedEnvironmentId: "${ENV_ID}"
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: true
+      targetPort: 3000
+      transport: auto
+      traffic:
+        - weight: 100
+          latestRevision: true
+    registries:
+      - server: ${ACR_NAME}.azurecr.io
+        identity: system
+  template:
+    containers:
+      - name: llm-agent
+        image: ${ACR_NAME}.azurecr.io/agent-id-dev/llm-agent:1.0.0
+        resources: { cpu: 0.5, memory: 1Gi }
+        env:
+          - { name: TENANT_ID, value: "${TENANT_ID}" }
+          - { name: BLUEPRINT_APP_ID, value: "${BLUEPRINT_APP_ID}" }
+          - { name: AGENT_APP_ID, value: "${AGENT_CLIENT_ID}" }
+          - { name: AGENT_CLIENT_ID, value: "${AGENT_CLIENT_ID}" }
+          - { name: CLIENT_SPA_APP_ID, value: "${CLIENT_SPA_APP_ID}" }
+          - { name: SIDECAR_URL, value: "http://localhost:5000" }
+          - { name: WEATHER_API_URL, value: "http://localhost:8080" }
+          - { name: OLLAMA_URL, value: "http://localhost:11434" }
+          - { name: OLLAMA_MODEL, value: "${OLLAMA_MODEL}" }
+      - name: sidecar
+        image: mcr.microsoft.com/entra-sdk/auth-sidecar:1.0.0-azurelinux3.0-distroless
+        resources: { cpu: 0.25, memory: 0.5Gi }
+        env:
+          - { name: AzureAd__Instance, value: "https://login.microsoftonline.com/" }
+          - { name: AzureAd__TenantId, value: "${TENANT_ID}" }
+          - { name: AzureAd__ClientId, value: "${BLUEPRINT_APP_ID}" }
+          - { name: AzureAd__ClientCredentials__0__SourceType, value: "SignedAssertionFromManagedIdentity" }
+          - { name: AzureAd__ClientCredentials__0__ManagedIdentityClientId, value: "" }
+          - { name: DownstreamApis__graph-app__BaseUrl, value: "https://graph.microsoft.com/v1.0/" }
+          - { name: DownstreamApis__graph-app__Scopes__0, value: "https://graph.microsoft.com/.default" }
+          - { name: DownstreamApis__graph-app__RequestAppToken, value: "true" }
+          - { name: DownstreamApis__graph__BaseUrl, value: "https://graph.microsoft.com/v1.0/" }
+          - { name: DownstreamApis__graph__Scopes__0, value: "https://graph.microsoft.com/.default" }
+          - { name: ASPNETCORE_ENVIRONMENT, value: "Production" }
+          - { name: ASPNETCORE_URLS, value: "http://+:5000" }
+      - name: weather-api
+        image: ${ACR_NAME}.azurecr.io/agent-id-dev/weather-api:1.0.0
+        resources: { cpu: 0.25, memory: 0.5Gi }
+        env:
+          - { name: TENANT_ID, value: "${TENANT_ID}" }
+          - { name: VALIDATE_TOKEN_SIGNATURE, value: "true" }
+      - name: ollama
+        image: ${OLLAMA_IMAGE}
+        resources: { cpu: ${OLLAMA_CPU}, memory: ${OLLAMA_MEMORY} }
+        env:
+          - { name: OLLAMA_HOST, value: "0.0.0.0:11434" }
+    scale:
+      minReplicas: ${MIN_REPLICAS}
+      maxReplicas: ${MAX_REPLICAS}

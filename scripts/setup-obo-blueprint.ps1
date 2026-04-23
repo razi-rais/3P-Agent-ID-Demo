@@ -8,10 +8,10 @@
 # =============================================================================
 
 param(
-    [string]$BlueprintAppId = "438c96a9-d387-4502-80a5-8f9cc2a9b787",
-    [string]$AgentAppId = "5ef17dad-7322-49f9-96d6-beb11268e130",
-    [string]$ClientSpaAppId = "6e846e46-d9c2-49bf-8c71-67d46ddd970f",
-    [string]$TenantId = "e79b594f-576d-441c-a225-1a494176df0d"
+    [Parameter(Mandatory=$true)][string]$BlueprintAppId,
+    [Parameter(Mandatory=$true)][string]$AgentAppId,
+    [Parameter(Mandatory=$true)][string]$ClientSpaAppId,
+    [Parameter(Mandatory=$true)][string]$TenantId
 )
 
 Write-Host ""

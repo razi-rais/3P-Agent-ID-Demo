@@ -1,0 +1,62 @@
+# Copy to /tmp/deploy-vars.sh, fill in values, then `source /tmp/deploy-vars.sh`.
+# Scripts in this skill will append newly discovered IDs back to this file.
+
+# ---- Azure (required up front) ----
+export TENANT_ID=""
+export SUBSCRIPTION_ID=""
+export RG="rg-agent-id-aws"
+export LOCATION="eastus2"
+# Globally unique suffix (computed ONCE — do not use $(openssl ...) here; this file is
+# sourced multiple times by the orchestrator and each source would regenerate the suffix,
+# making ACR_NAME/APP_NAME drift between steps).
+# To get a fresh deployment, either edit SUFFIX by hand or delete and re-copy the template.
+export SUFFIX="CHANGEME"   # replace with 6 hex chars, e.g. `openssl rand -hex 3`
+export ACR_NAME="agentidaws${SUFFIX}"
+export APP_NAME="agent-id-aws-${SUFFIX}"
+
+# ---- SKU decisions (CONFIRM WITH USER — do not silently accept defaults) ----
+# See references/sku-sizing.md for the full tradeoff matrix.
+
+# ACR SKU: Basic (~$5/mo, demo) | Standard (~$20/mo, iteration) | Premium (~$50/mo, private link)
+# - Basic throttles pulls on rapid revision churn; use Standard if you'll rebuild more than once a day.
+export ACR_SKU="Basic"
+
+# ACA workload profile: Consumption (scale-to-zero capable) | Dedicated-D4 (~$140/mo, no cold starts) | ...
+# - Consumption + minReplicas=0 causes visible cold starts (~5-30 s) on first request.
+# - If set to Dedicated-*, the script will create the matching workload profile.
+export ACA_WORKLOAD_PROFILE="Consumption"
+
+# Logs destination: none (free, last ~20 min of console) | log-analytics (recommended, ~$2.76/GB)
+# - "none" means you CANNOT debug sidecar auth errors after the fact. Use log-analytics for first deploy.
+export LOGS_DESTINATION="log-analytics"
+# If LOGS_DESTINATION=log-analytics, either set WORKSPACE_ID here or leave blank to auto-create one:
+export LOG_ANALYTICS_WORKSPACE_ID=""
+
+# Replicas
+# - min=1 avoids cold starts. min=0 saves money but slow first request.
+export MIN_REPLICAS="1"
+export MAX_REPLICAS="1"
+
+# ---- AWS (required up front) ----
+# Region + inference profile: must match a region with Bedrock Claude access approved for the account.
+# us.anthropic.* inference-profile IDs require us-east-1, us-east-2, or us-west-2.
+export AWS_ACCOUNT_ID=""
+export AWS_REGION="us-east-2"
+export BEDROCK_MODEL_ID="us.anthropic.claude-3-haiku-20240307-v1:0"
+export AWS_ROLE_NAME="BedrockInvokerFromAzure"
+
+# ---- Populated by Step 1 (entra-agent-id-setup) ----
+export BLUEPRINT_APP_ID=""
+export AGENT_CLIENT_ID=""
+export CLIENT_SPA_APP_ID=""
+
+# ---- Populated by Step 2 (Azure infra) ----
+export MI_OBJECT_ID=""
+export APP_FQDN=""
+
+# ---- Populated by Step 4 (AWS federation) ----
+export STS_APP_ID=""
+export STS_APP_URI=""
+export STS_SP_OID=""
+export V1_OIDC_ARN=""
+export AWS_ROLE_ARN=""

@@ -70,3 +70,19 @@ Use `Get-DecodedJwtToken -Token $tr` to inspect.
 **Cause**: Microsoft publishes `linux/amd64` only. Docker runs it under Rosetta.
 
 **Fix**: Harmless — the sidecar runs correctly under emulation.
+
+## `Connect-MgGraph: InteractiveBrowserCredential authentication failed: User canceled authentication.`
+
+**Symptom**: `Connect-MgGraph` immediately fails when run from `pwsh -Command "Connect-MgGraph ..."` subshell.
+
+**Cause**: WAM popup or browser window opens behind other windows in a child `pwsh` process. The popup isn’t visible and times out.
+
+**Fix**: Run `pwsh` as an interactive session first, then call `Connect-MgGraph` inside it. Do NOT wrap it in `pwsh -Command "..."` on Windows.
+
+## `Missing required Microsoft Graph scopes` from `Start-EntraAgentIDWorkflow`
+
+**Symptom**: Workflow throws even though `Connect-MgGraph` succeeded.
+
+**Cause**: `Connect-MgGraph` was called without `AgentIdentityBlueprint.DeleteRestore.All` and/or `AgentIdentity.DeleteRestore.All`. The SKILL previously listed only 8 scopes; the script validates 10.
+
+**Fix**: `Disconnect-MgGraph` then reconnect with the full 10-scope list from the SKILL.md Step 1 code block. The script’s internal scope check is the canonical source of truth.

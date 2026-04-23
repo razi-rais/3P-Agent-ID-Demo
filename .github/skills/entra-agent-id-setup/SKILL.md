@@ -25,7 +25,7 @@ End-to-end provisioning of a Microsoft Entra Agent Identity + OBO-capable client
 3. **Tooling**:
    - Azure CLI (`az`) signed in to the target tenant
    - PowerShell 7+ (`pwsh`)
-   - `Microsoft.Graph.Authentication` and `Microsoft.Graph.Beta.Applications` PowerShell modules
+   - `Microsoft.Graph.Authentication` and `Microsoft.Graph.Beta.Applications` PowerShell modules (install: `Install-Module Microsoft.Graph.Authentication, Microsoft.Graph.Beta.Applications -Scope CurrentUser`)
    - Docker Desktop (for sidecar)
 4. **MFA**: If the signing-in user was just created, they MUST complete MFA enrollment via browser first (`AADSTS50079`). Password-only `az login -u -p` will fail.
 
@@ -35,13 +35,18 @@ End-to-end provisioning of a Microsoft Entra Agent Identity + OBO-capable client
 
 Run the end-to-end workflow. Creates Blueprint app, Blueprint SP, client secret, Agent Identity, and assigns Graph permissions.
 
+> **[!WARNING] Run in an interactive `pwsh` session, not a subshell.**
+> `pwsh -Command "Connect-MgGraph ..."` spawns a child process where the WAM / browser popup may be hidden behind other windows and time out with `InteractiveBrowserCredential authentication failed: User canceled authentication.` Run `pwsh` first, then dot-source and connect inside that session.
+
 ```powershell
 pwsh
 . /path/to/repo/scripts/EntraAgentID-Functions.ps1
-Connect-MgGraph -Scopes "AgentIdentityBlueprint.AddRemoveCreds.All","AgentIdentityBlueprint.Create","DelegatedPermissionGrant.ReadWrite.All","Application.Read.All","AgentIdentityBlueprintPrincipal.Create","AppRoleAssignment.ReadWrite.All","Directory.Read.All","User.Read" -TenantId <tenant-id>
+Connect-MgGraph -Scopes "AgentIdentityBlueprint.AddRemoveCreds.All","AgentIdentityBlueprint.Create","AgentIdentityBlueprint.DeleteRestore.All","AgentIdentity.DeleteRestore.All","DelegatedPermissionGrant.ReadWrite.All","Application.Read.All","AgentIdentityBlueprintPrincipal.Create","AppRoleAssignment.ReadWrite.All","Directory.Read.All","User.Read" -TenantId <tenant-id>
 
 $r = Start-EntraAgentIDWorkflow -BlueprintName "Demo Blueprint" -AgentName "Weather Agent" -Permissions @("User.Read.All")
 ```
+
+> **Scope list must match `EntraAgentID-Functions.ps1`'s internal check.** If you omit `AgentIdentityBlueprint.DeleteRestore.All` or `AgentIdentity.DeleteRestore.All`, the workflow throws `Missing required Microsoft Graph scopes` and prints the full reconnect command.
 
 Write `$r.Blueprint.BlueprintAppId`, `$r.Blueprint.ClientSecret`, and `$r.Agent.AgentIdentityAppId` into `sidecar/dev/.env` as `BLUEPRINT_APP_ID`, `BLUEPRINT_CLIENT_SECRET`, `AGENT_CLIENT_ID`, plus `TENANT_ID`.
 

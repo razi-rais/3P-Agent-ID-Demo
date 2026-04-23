@@ -1,0 +1,65 @@
+# Copy to /tmp/deploy-vars.sh, fill in values, then `source /tmp/deploy-vars.sh`.
+# Scripts in this skill will append newly discovered IDs back to this file.
+
+# ---- Azure (required up front) ----
+export TENANT_ID=""
+export SUBSCRIPTION_ID=""
+export RG="rg-agent-id-dev"
+export LOCATION="eastus2"
+# Globally unique suffix (computed ONCE — do not use $(openssl ...) here; this file is
+# sourced multiple times by the orchestrator and each source would regenerate the suffix,
+# making ACR_NAME/APP_NAME drift between steps).
+# To get a fresh deployment, either edit SUFFIX by hand or delete and re-copy the template.
+export SUFFIX="CHANGEME"   # replace with 6 hex chars, e.g. `openssl rand -hex 3`
+export ACR_NAME="agentiddev${SUFFIX}"
+export APP_NAME="agent-id-dev-${SUFFIX}"
+
+# ---- SKU decisions (CONFIRM WITH USER — do not silently accept defaults) ----
+# See references/sku-sizing.md for the full tradeoff matrix.
+
+# ACR SKU: Basic (~$5/mo, one model) | Standard (~$20/mo, multiple models) | Premium (~$50/mo, private link)
+# - Each baked Ollama image is ~1 GB; Basic's 10 GB quota fills with ~5-6 variants.
+export ACR_SKU="Basic"
+
+# ACA workload profile: Consumption (scale-to-zero capable) | Dedicated-D4 (~$140/mo) | Dedicated-GPU (~$2k+/mo)
+# - 1.5B model on Consumption CPU returns in 5-20 s; 7B needs GPU for interactive latency.
+export ACA_WORKLOAD_PROFILE="Consumption"
+
+# Logs destination: none (free) | log-analytics (recommended) | azure-monitor
+# - "none" hides Ollama OOM crashes and sidecar auth errors. Use log-analytics for first deploy.
+export LOGS_DESTINATION="log-analytics"
+export LOG_ANALYTICS_WORKSPACE_ID=""   # blank = auto-create
+
+# Replicas
+# - min=0 is BAD with Ollama (model reloads into RAM every cold start).
+export MIN_REPLICAS="1"
+export MAX_REPLICAS="1"
+
+# ---- Ollama ----
+# Model: qwen2.5:1.5b (~1 GB, CPU-friendly) | qwen2.5:3b (~2 GB) | qwen2.5:7b (~4 GB, needs GPU)
+#        llama3.2:1b (fastest) | phi3:mini (MS-native)
+export OLLAMA_MODEL="qwen2.5:1.5b"
+
+# Image strategy: baked (model layered into image, no first-request delay)
+#                 runtime-pull (smaller image, ~30 s hang on first request)
+# IMPORTANT: baked strategy requires local Docker Desktop. ACR Build CANNOT build
+# baked Ollama images (ollama serve fails inside ACR Build). If Docker is unavailable,
+# use runtime-pull.
+export OLLAMA_IMAGE_STRATEGY="baked"
+
+# Ollama container resources — MUST match model choice.
+# Undersized memory causes OOM crash-loops. See references/ollama-on-aca.md.
+#   qwen2.5:1.5b / llama3.2:1b → 0.75 vCPU / 1.5Gi  (total: 1.75 vCPU / 3.5Gi)
+#   qwen2.5:3b                  → 1.0  vCPU / 2.5Gi  (total: 2.0  vCPU / 4.5Gi)
+#   qwen2.5:7b                  → 2.0  vCPU / 6Gi    (total: 3.0  vCPU / 8.5Gi, needs Dedicated/GPU)
+export OLLAMA_CPU="0.75"
+export OLLAMA_MEMORY="1.5Gi"
+
+# ---- Populated by Step 1 (entra-agent-id-setup) ----
+export BLUEPRINT_APP_ID=""
+export AGENT_CLIENT_ID=""
+export CLIENT_SPA_APP_ID=""
+
+# ---- Populated by Step 2 (Azure infra) ----
+export MI_OBJECT_ID=""
+export APP_FQDN=""
