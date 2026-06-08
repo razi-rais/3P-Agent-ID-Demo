@@ -503,7 +503,7 @@ sequenceDiagram
     A-->>U: London is 60F with Light Drizzle
 ```
 
-> 🖼️ **Prefer an image?** View [Figure 7 as a high-resolution PNG](docs/images/agent-id-outbound-federation-gcp-figure7.png) (7152 × 5592, ~675 KB) for print, slides, or anywhere Mermaid does not render.
+> 🖼️ **Prefer an image?** View [Figure 7 as a high-resolution PNG](https://github.com/razi-rais/3P-Agent-ID-Demo/blob/main/sidecar/llm-agent-google/docs/images/agent-id-outbound-federation-gcp-figure7.png) (7152 × 5592, ~675 KB) for print, slides, or anywhere Mermaid does not render.
 
 > **Diagram visual encoding** matches the badges above the table:
 > **Outer band** = which leg of the agent turn (🟦 GCP, 🟪 Protected Resource). **Nested rect** = which exchange is happening (🟧 MI fetch, 🟡 FIC, 🟢 WIF). **Emoji on an arrow** = which JWT is on the wire (🟧 MI JWT, 🔵 Agent ID JWT for GCP STS, 🟣 Agent ID JWT for the API). The FIC→WIF chain reads visually as the 🔵 token born inside the amber FIC rect being consumed by the teal WIF rect three arrows later.
