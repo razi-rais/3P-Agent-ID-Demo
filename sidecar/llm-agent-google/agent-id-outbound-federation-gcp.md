@@ -253,7 +253,7 @@ The FIC is what allows the Entra SDK to perform the client_credentials grant aga
 
 ---
 
-## 4.1 Not running contaienr in Azure? Google Cloud Run as the FIC anchor
+## 4.1 Not running containers in Azure? Use Google Cloud Run (GCP) to run them and add them as the FIC anchor
 
 The deployment walked above runs the Weather Agent on Azure Container Apps. The same Agent Identity model also works when the agent runs outside Azure entirely. The closest non-Azure equivalent of ACA is Cloud Run, the fully-managed serverless-container service on GCP. This section walks what changes and what stays the same when the host swaps from ACA to Cloud Run.
 
