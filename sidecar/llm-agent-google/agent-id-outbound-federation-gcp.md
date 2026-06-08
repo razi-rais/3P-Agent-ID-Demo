@@ -439,69 +439,9 @@ The Entra SDK has one job in both bands: **mint Agent Identity JWTs** (via `clie
 
 **Band legend:** 🟦 Entra + GCP path &nbsp;&nbsp; 🟪 Entra + Protected Resource path
 
-```mermaid
-%%{init: {'theme':'base', 'themeVariables': { 'actorBorder':'#e0e0e0', 'actorBkg':'#2a2a2a', 'actorTextColor':'#f0f0f0', 'noteBkgColor':'#3a3a3a', 'noteTextColor':'#f0f0f0', 'noteBorderColor':'#666', 'sequenceNumberColor':'#1a1a1a' }, 'themeCSS':'circle { r: 12 !important; } .sequenceNumber { font-weight: 900 !important; font-size: 15px !important; font-family: monospace !important; stroke: #1a1a1a !important; stroke-width: 0.7px !important; paint-order: stroke fill !important; }'}}%%
-sequenceDiagram
-    autonumber
-    actor U as Client
-    participant A as Agent
-    participant S as Entra SDK
-    participant M as ACA MI endpoint
-    participant E as Entra ID
-    participant G as GCP STS
-    participant I as iamcredentials
-    participant V as Vertex AI / Gemini
-    participant W as Protected Resource<br/>(Weather API, MCP, etc.)
 
-    U->>A: POST /api/chat llm_mode=vertex
-    rect rgba(80, 140, 200, 0.20)
-    Note over A,V: 🟦 Entra + GCP path (Agent Identity mint and call, federated to GCP)
-    A->>S: GET /gcp-sts?AgentIdentity=aaaaaaaa-...
-        rect rgba(234, 88, 12, 0.18)
-        Note over S,M: 🟧 MI assertion fetch
-        S->>M: GET /msi/token?resource=api://AzureADTokenExchange
-        M-->>S: 🟧 UAMI assertion (sub=cccccccc-...)
-        end
-        rect rgba(245, 158, 11, 0.22)
-        Note over S,E: 🟡 FIC · client_credentials (credential = signed assertion)
-        S->>E: client_assertion = UAMI JWT, scope = api://bbbbbbbb-.../.default
-        E-->>S: 🔵 Agent Identity JWT (aud=api://bbbbbbbb-...)
-        end
-    S-->>A: 🔵 Agent Identity JWT (Bearer header)
-        rect rgba(13, 148, 136, 0.22)
-        Note over A,G: 🟢 WIF · Workload Identity Federation
-        A->>G: 🔵 POST /v1/token (subject_token = Agent Identity JWT)
-        G-->>A: federated access token
-        end
-    A->>I: weather-agent-agentid:generateAccessToken
-    I-->>A: ya29.* access token
-    A->>V: gemini-2.5-flash-lite:generateContent (turn 1)
-    V-->>A: tool_call get_weather(city=London)
-    end
-    rect rgba(170, 110, 180, 0.22)
-    Note over A,W: 🟪 Entra + Protected Resource path (Agent Identity mint and call)
-    A->>S: GET /graph-app?AgentIdentity=aaaaaaaa-...
-        rect rgba(234, 88, 12, 0.18)
-        Note over S,M: 🟧 MI assertion fetch (cache hit)
-        S->>M: GET /msi/token?resource=api://AzureADTokenExchange
-        M-->>S: 🟧 UAMI assertion (cache hit on 2nd leg)
-        end
-        rect rgba(245, 158, 11, 0.22)
-        Note over S,E: 🟡 FIC · client_credentials (credential = signed assertion)
-        S->>E: client_assertion = UAMI JWT, FMI Path = aaaaaaaa-..., scope = api://weather-api-prod/.default
-        E-->>S: 🟣 Agent Identity JWT (aud=api://weather-api-prod)
-        end
-    S-->>A: 🟣 Agent Identity JWT (Bearer header)
-    A->>W: 🟣 GET /weather?city=London
-    W-->>A: London / 60F / Light Drizzle
-    end
-    rect rgba(80, 140, 200, 0.20)
-    Note over A,V: 🟦 GCP path (cached, turn 2)
-    A->>V: gemini-2.5-flash-lite:generateContent (turn 2)
-    V-->>A: final answer
-    end
-    A-->>U: London is 60F with Light Drizzle
-```
+<img width="7152" height="5592" alt="image" src="https://github.com/user-attachments/assets/f2e0de9c-293e-47ed-9808-4b079333986b" />
+
 
 > 🖼️ **Prefer an image?** View [Figure 7 as a high-resolution PNG](https://github.com/razi-rais/3P-Agent-ID-Demo/blob/main/sidecar/llm-agent-google/docs/images/agent-id-outbound-federation-gcp-figure7.png) (7152 × 5592, ~675 KB) for print, slides, or anywhere Mermaid does not render.
 
