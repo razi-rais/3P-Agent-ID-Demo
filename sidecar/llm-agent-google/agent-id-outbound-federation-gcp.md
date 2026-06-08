@@ -253,6 +253,82 @@ The FIC is what allows the Entra SDK to perform the client_credentials grant aga
 
 ---
 
+## 4.1 Not running contaienr in Azure? Google Cloud Run as the FIC anchor
+
+The deployment walked above runs the Weather Agent on Azure Container Apps. The same Agent Identity model also works when the agent runs outside Azure entirely. The closest non-Azure equivalent of ACA is Cloud Run, the fully-managed serverless-container service on GCP. This section walks what changes and what stays the same when the host swaps from ACA to Cloud Run.
+
+The short answer: the **Entra Agent Identity** stays. The **Blueprint** stays. The **GCP-side bootstrap** (pool, provider, SA, IAM binding) stays. What changes is the **FIC anchor on the Blueprint** and the **sidecar configuration** that tells the Entra SDK how to fetch the `client_assertion`.
+
+### What stays the same
+
+Everything that travels on the wire from the Entra SDK onward is identical to the ACA case. The Entra SDK still performs a `client_credentials` grant against the Blueprint and receives an Agent Identity JWT. The JWT still has `iss=https://login.microsoftonline.com/<tenant>/v2.0`, `aud=<Blueprint appId>`, `sub=<Agent Identity OID>`. GCP STS still validates that JWT through the same provider, against the same audience allow-list, against the same CEL `attributeCondition`. Vertex AI still receives the same `ya29.*` bearer.
+
+So the whole right-hand side of Figure 1 (GCP) is unchanged. The diagrams in sections 2, 3, 5, and 6 hold verbatim.
+
+### What changes: the FIC trio on the Blueprint
+
+On ACA, the Blueprint trusts the UAMI as the source of the `client_assertion`. On Cloud Run, the Blueprint trusts the GCP service account attached to the Cloud Run revision. Side by side:
+
+| FIC field | ACA case (UAMI) | Cloud Run case (GCP SA) |
+|---|---|---|
+| `issuer` | `https://login.microsoftonline.com/<tenant>/v2.0` | `https://accounts.google.com` |
+| `subject` | UAMI `principalId` (GUID) | GCP SA `uniqueId` (21-digit number) |
+| `audiences` | `["api://AzureADTokenExchange"]` | `["api://AzureADTokenExchange"]` |
+
+Two of the three fields change. The audience stays the same because that is the canonical value Entra requires for any federated-credential exchange, regardless of which IdP signed the assertion.
+
+The trust shape is identical to the ACA FIC. The only difference is which outside IdP is being trusted as the source of the `client_assertion`: Entra v2 (for an Azure-issued MI assertion) on ACA, or Google (for a GCP-issued OIDC ID token) on Cloud Run.
+
+### What changes: how the sidecar fetches the assertion
+
+Both clouds expose a metadata server that the running workload can call to get a freshly-signed OIDC JWT identifying the attached identity. On Azure that endpoint is the MI endpoint (`IDENTITY_ENDPOINT` + `X-IDENTITY-HEADER` on ACA, or IMDS `169.254.169.254` on VMs). On GCP that endpoint is the metadata server at `http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience=<aud>`, with the required `Metadata-Flavor: Google` header. Both endpoints are platform-managed, both return a short-lived signed JWT, and both require no key material on disk.
+
+The asymmetry is not on the cloud side. It is on the **SDK** side. Microsoft.Identity.Web (the library inside the Entra SDK sidecar) ships with a built-in caller for the Azure MI endpoint, exposed as the `SignedAssertionFromManagedIdentity` client-credential source type. It does **not** ship with a built-in caller for the GCP metadata server. So:
+
+- On ACA, the sidecar config is one line: `SourceType=SignedAssertionFromManagedIdentity` plus the UAMI's `clientId`. The SDK calls the MI endpoint itself, on demand, every time it needs an assertion.
+- On Cloud Run, something outside the SDK has to call the GCP metadata server and hand the result to the SDK. The generic mechanism the SDK exposes for that is `SignedAssertionFromFilePath`. The SDK reads the assertion from the configured file every time it needs one. A small refresher process (an init container, a sidecar loop, or a custom assertion-provider delegate registered in code) curls the GCP metadata server on a refresh cadence and writes the result to that file.
+
+A minimal Cloud Run refresher loop, for illustration:
+
+```bash
+# runs in a sidecar container, refreshes every ~40 minutes
+# (Google-signed ID tokens last 1 hour)
+while true; do
+  curl -s -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience=api://AzureADTokenExchange" \
+    > /var/run/secrets/entra/assertion
+  sleep 2400
+done
+```
+
+The Entra SDK sidecar mounts the same shared volume and is configured with `SourceType=SignedAssertionFromFilePath` pointing at `/var/run/secrets/entra/assertion`.
+
+Both deployments stay secretless. On ACA the "secret" is Azure's ability to mint an MI assertion on demand, gated by the per-replica `IDENTITY_HEADER` nonce. On Cloud Run the "secret" is GCP's ability to mint a metadata-server ID token on demand, gated by the metadata server only being reachable from inside the Cloud Run revision. Neither stores anything long-lived. The file on Cloud Run holds a JWT that expires in an hour and gets overwritten.
+
+### Side-by-side summary
+
+```
+                  ACA + UAMI                Cloud Run + GCP SA
+                  ──────────                ──────────────────
+Host             Azure Container Apps       GCP Cloud Run
+Runtime identity UAMI                       GCP service account
+Metadata endpt   IDENTITY_ENDPOINT          metadata.google.internal
+                 (X-IDENTITY-HEADER nonce)  (Metadata-Flavor: Google)
+Assertion iss    Entra v2                   https://accounts.google.com
+Assertion sub    UAMI principalId           GCP SA uniqueId
+FIC on Blueprint subject = UAMI principalId subject = GCP SA uniqueId
+Sidecar source   SignedAssertion-           SignedAssertion-
+                   FromManagedIdentity        FromFilePath
+                                            (+ refresher loop)
+GCP-side WIF     unchanged                  unchanged
+Agent Identity   unchanged                  unchanged
+On-wire JWT      unchanged                  unchanged
+```
+
+The takeaway: the Microsoft Entra Agent ID model is host-agnostic. Wherever the agent runs, you anchor one FIC on the Blueprint at whichever OIDC issuer that host already gives you for free. Azure gives you Entra v2 through the MI endpoint. GCP gives you Google through the metadata server. AWS gives you `sts.amazonaws.com` through IRSA or EKS pod identity. The wire shape downstream is the same in every case.
+
+---
+
 ## 5. GCP-side bootstrap
 
 The GCP-side bootstrap is one pool, one provider, one service account, and one IAM binding. Everything below uses the [`gcloud iam`](https://cloud.google.com/sdk/gcloud/reference/iam) command surface. Project id `acme-agent-prod-001` and project number `100000000001` are synthetic stand-ins for the real project values. The project id is what you pass on the gcloud command line. The project number is what appears inside the `principal://` URI of the IAM binding because that URI is built from immutable identifiers.
