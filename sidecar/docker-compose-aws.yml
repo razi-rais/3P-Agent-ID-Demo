@@ -4,6 +4,7 @@ services:
   # Microsoft Entra SDK for AgentID Sidecar
   sidecar:
     image: mcr.microsoft.com/entra-sdk/auth-sidecar:1.0.0-azurelinux3.0-distroless
+    platform: linux/amd64
     container_name: agent-id-sidecar-aws
     ports:
       - "5001:5000"

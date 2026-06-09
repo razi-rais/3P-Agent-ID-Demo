@@ -4,6 +4,7 @@ services:
   # Microsoft Entra SDK for AgentID Sidecar
   sidecar:
     image: mcr.microsoft.com/entra-sdk/auth-sidecar:1.0.0-azurelinux3.0-distroless
+    platform: linux/amd64
     container_name: agent-id-sidecar
     ports:
       - "5001:5000"
@@ -71,6 +72,7 @@ services:
       - ollama-data:/root/.ollama
     networks:
       - agent-network
+    entrypoint: ["/bin/bash", "-c", "ollama serve & sleep 5 && ollama pull qwen2.5:1.5b && wait"]
     # Uncomment below for GPU support
     # deploy:
     #   resources:
